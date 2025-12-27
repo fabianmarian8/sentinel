@@ -1,4 +1,4 @@
-import { IsUUID, IsEnum } from 'class-validator';
+import { IsString, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { WorkspaceRole } from '@prisma/client';
 
@@ -7,7 +7,7 @@ export class AddMemberDto {
     example: 'clxyz123...',
     description: 'User ID to add as member',
   })
-  @IsUUID()
+  @IsString()
   userId!: string;
 
   @ApiProperty({

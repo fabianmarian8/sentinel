@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsUUID, IsDateString, IsInt, Min, Max } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsDateString, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AlertSeverity } from '@prisma/client';
 
@@ -10,7 +10,7 @@ export enum AlertStatusFilter {
 }
 
 export class AlertFilterDto {
-  @IsUUID()
+  @IsString()
   workspaceId!: string;
 
   @IsEnum(AlertStatusFilter)
@@ -21,7 +21,7 @@ export class AlertFilterDto {
   @IsOptional()
   severity?: AlertSeverity;
 
-  @IsUUID()
+  @IsString()
   @IsOptional()
   ruleId?: string;
 

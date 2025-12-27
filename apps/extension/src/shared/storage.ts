@@ -109,11 +109,18 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    const error = await response.json().catch(() => ({}));
+
+    // For auth endpoints (login/register), show the actual error message
+    const isAuthEndpoint = endpoint.startsWith('/auth/');
+
+    if (response.status === 401 && !isAuthEndpoint) {
+      // Session expired - clear tokens and show message
       await setStorageData({ authToken: undefined, user: undefined });
       throw new Error('Session expired');
     }
-    const error = await response.json().catch(() => ({}));
+
+    // For auth endpoints or other errors, show the real message
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
