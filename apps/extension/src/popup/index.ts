@@ -14,6 +14,7 @@ import {
   getStorageData,
   setStorageData,
   apiRequest,
+  clearLegacyCredentials,
 } from '../shared/storage';
 
 interface Workspace {
@@ -205,7 +206,7 @@ async function login(email: string, password: string): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  await setStorageData({ authToken: undefined, user: undefined, pendingElement: undefined, savedCredentials: undefined });
+  await setStorageData({ authToken: undefined, user: undefined, pendingElement: undefined, savedEmail: undefined });
   currentUser = null;
   isRegisterMode = false;
   updateAuthUI();
@@ -702,16 +703,25 @@ async function createRule(event: Event): Promise<void> {
 // Initialization
 async function initPickerView(): Promise<void> {
   showView('picker');
-  await Promise.all([
-    loadCurrentTab(),
-    loadWorkspaces(),
-    loadPendingElement(),
-  ]);
+
+  // Load tab info first (non-blocking)
+  loadCurrentTab();
+
+  // CRITICAL: Load workspaces FIRST before showing form
+  // This fixes the race condition where form could show before workspaces are ready
+  await loadWorkspaces();
+
+  // Only after workspaces are loaded, check for pending element and show form
+  await loadPendingElement();
+
   // Load rules after workspaces are loaded
   await loadRules();
 }
 
 async function init(): Promise<void> {
+  // SECURITY: Clear any legacy saved passwords on startup
+  await clearLegacyCredentials();
+
   const isAuthenticated = await checkAuth();
 
   if (isAuthenticated) {
@@ -720,28 +730,12 @@ async function init(): Promise<void> {
     showView('login');
     updateAuthUI();
 
-    // Load saved credentials if available
-    const { savedCredentials } = await getStorageData();
-    if (savedCredentials) {
-      emailInput.value = savedCredentials.email;
-      passwordInput.value = savedCredentials.password;
+    // Load saved email for convenience (NOT password - security risk)
+    const { savedEmail } = await getStorageData();
+    if (savedEmail) {
+      emailInput.value = savedEmail;
       rememberMeCheckbox.checked = true;
-
-      // Auto-login with saved credentials
-      authSubmitBtn.disabled = true;
-      authSubmitBtn.textContent = 'Prihlasujem...';
-      try {
-        await login(savedCredentials.email, savedCredentials.password);
-        showToast('Automaticky prihlásený', 'success');
-        return; // Exit early, already in picker view
-      } catch (error) {
-        // Saved credentials no longer valid, clear them
-        await setStorageData({ savedCredentials: undefined });
-        showToast('Uložené údaje sú neplatné', 'error');
-      } finally {
-        authSubmitBtn.disabled = false;
-        authSubmitBtn.textContent = 'Login';
-      }
+      // User must enter password manually - this is intentional for security
     }
   }
 
@@ -774,11 +768,12 @@ async function init(): Promise<void> {
         showToast('Login successful!', 'success');
       }
 
-      // Save credentials if "Remember me" is checked
+      // Save email only (NOT password) if "Remember me" is checked
+      // Password is never stored - user uses authToken for session
       if (rememberMe) {
-        await setStorageData({ savedCredentials: { email, password } });
+        await setStorageData({ savedEmail: email });
       } else {
-        await setStorageData({ savedCredentials: undefined });
+        await setStorageData({ savedEmail: undefined });
       }
     } catch (error) {
       showToast(`${isRegisterMode ? 'Registration' : 'Login'} failed: ${(error as Error).message}`, 'error');

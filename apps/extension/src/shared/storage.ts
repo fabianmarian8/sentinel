@@ -8,6 +8,23 @@ export interface User {
   name: string;
 }
 
+export interface SelectorFingerprint {
+  /** Primary CSS selector */
+  selector: string;
+  /** Alternative selectors for fallback */
+  alternativeSelectors?: string[];
+  /** Text content anchor for validation */
+  textAnchor?: string;
+  /** Parent element context (2 levels) */
+  parentContext?: {
+    tag: string;
+    classes: string[];
+    id?: string;
+  }[];
+  /** Element attributes for verification */
+  attributes?: Record<string, string>;
+}
+
 export interface SelectedElement {
   selector: string;
   value: string;
@@ -15,6 +32,8 @@ export interface SelectedElement {
   pageUrl: string;
   pageTitle: string;
   timestamp: number;
+  /** Enhanced fingerprint for auto-healing */
+  fingerprint?: SelectorFingerprint;
 }
 
 export interface StorageData {
@@ -23,10 +42,11 @@ export interface StorageData {
   apiBaseUrl?: string;
   rulesCache?: RuleCache;
   pendingElement?: SelectedElement;
-  savedCredentials?: {
-    email: string;
-    password: string;
-  };
+  /**
+   * Saved email for convenience (NOT password - security risk)
+   * Password should never be stored, use authToken instead
+   */
+  savedEmail?: string;
 }
 
 export interface RuleCache {
@@ -40,9 +60,19 @@ export const DEFAULT_API_URL = 'https://sentinel.taxinearme.sk/api';
 
 export async function getStorageData(): Promise<StorageData> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['authToken', 'user', 'apiBaseUrl', 'rulesCache', 'pendingElement', 'savedCredentials'], (result) => {
+    chrome.storage.local.get(['authToken', 'user', 'apiBaseUrl', 'rulesCache', 'pendingElement', 'savedEmail'], (result) => {
       resolve(result as StorageData);
     });
+  });
+}
+
+/**
+ * Clear any legacy saved credentials (password) for security
+ * Call this on extension update to clean up old data
+ */
+export async function clearLegacyCredentials(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['savedCredentials'], resolve);
   });
 }
 

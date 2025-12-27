@@ -45,7 +45,18 @@ function setupContextMenu(): void {
 
 // Handle element selection from content script
 async function handleElementSelected(
-  element: { selector: string; value: string; tagName: string },
+  element: {
+    selector: string;
+    value: string;
+    tagName: string;
+    fingerprint?: {
+      selector: string;
+      alternativeSelectors?: string[];
+      textAnchor?: string;
+      parentContext?: { tag: string; classes: string[]; id?: string }[];
+      attributes?: Record<string, string>;
+    };
+  },
   sender: chrome.runtime.MessageSender
 ): Promise<void> {
   const tab = sender.tab;
@@ -61,6 +72,7 @@ async function handleElementSelected(
     pageUrl: tab.url,
     pageTitle: tab.title,
     timestamp: Date.now(),
+    fingerprint: element.fingerprint,
   };
 
   // Save to storage so popup can read it when opened
@@ -109,11 +121,44 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-chrome.notifications.onClicked.addListener((notificationId) => {
+chrome.notifications.onClicked.addListener(async (notificationId) => {
   if (notificationId === 'element-selected') {
-    // Open popup by clicking the extension icon programmatically
-    // This is not directly possible, but we can open the popup.html in a new tab as fallback
-    chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+    // Clear the notification
+    chrome.notifications.clear(notificationId);
+
+    // Try to use openPopup (Chrome 127+)
+    if (typeof chrome.action.openPopup === 'function') {
+      try {
+        await chrome.action.openPopup();
+        return;
+      } catch {
+        // openPopup may fail if no active window or other restrictions
+      }
+    }
+
+    // Fallback: Focus the browser window and show a reminder notification
+    try {
+      const [currentWindow] = await chrome.windows.getAll({ windowTypes: ['normal'] });
+      if (currentWindow?.id) {
+        await chrome.windows.update(currentWindow.id, { focused: true });
+      }
+    } catch {
+      // Window focus failed, continue anyway
+    }
+
+    // Show a brief reminder to click the icon
+    chrome.notifications.create('click-icon-reminder', {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Click the Sentinel Icon',
+      message: 'Click the Sentinel icon in your toolbar to create the monitoring rule.',
+      requireInteraction: false,
+    });
+
+    // Auto-clear reminder after 5 seconds
+    setTimeout(() => {
+      chrome.notifications.clear('click-icon-reminder');
+    }, 5000);
   }
 });
 

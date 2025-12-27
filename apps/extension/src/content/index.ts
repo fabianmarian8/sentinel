@@ -7,10 +7,23 @@
  * - Extract element selectors
  */
 
+interface SelectorFingerprint {
+  selector: string;
+  alternativeSelectors?: string[];
+  textAnchor?: string;
+  parentContext?: {
+    tag: string;
+    classes: string[];
+    id?: string;
+  }[];
+  attributes?: Record<string, string>;
+}
+
 interface SelectedElement {
   selector: string;
   value: string;
   tagName: string;
+  fingerprint?: SelectorFingerprint;
 }
 
 // State
@@ -176,6 +189,130 @@ function generateSelector(element: Element): string {
   return path.join(' > ');
 }
 
+// Generate fingerprint for element auto-healing
+function generateFingerprint(element: Element): SelectorFingerprint {
+  const primarySelector = generateSelector(element);
+  const alternativeSelectors: string[] = [];
+
+  // Strategy 1: XPath-like with text content
+  const textContent = element.textContent?.trim().slice(0, 50);
+  if (textContent && textContent.length > 3) {
+    const tag = element.tagName.toLowerCase();
+    // Contains text selector (for elements with unique text)
+    try {
+      const textSelector = `//${tag}[contains(text(),'${textContent.slice(0, 20).replace(/'/g, "\\'")}')]`;
+      alternativeSelectors.push(`xpath:${textSelector}`);
+    } catch {
+      // Invalid XPath, skip
+    }
+  }
+
+  // Strategy 2: Data attributes selector
+  const dataAttrs = Array.from(element.attributes)
+    .filter(attr => attr.name.startsWith('data-') && !attr.name.includes('react') && !attr.name.includes('angular'))
+    .slice(0, 2);
+  if (dataAttrs.length > 0) {
+    const dataSelector = element.tagName.toLowerCase() +
+      dataAttrs.map(attr => `[${attr.name}="${CSS.escape(attr.value)}"]`).join('');
+    try {
+      if (document.querySelectorAll(dataSelector).length <= 3) {
+        alternativeSelectors.push(dataSelector);
+      }
+    } catch {
+      // Invalid selector
+    }
+  }
+
+  // Strategy 3: Aria attributes selector
+  const ariaLabel = element.getAttribute('aria-label');
+  const role = element.getAttribute('role');
+  if (ariaLabel) {
+    const ariaSelector = `[aria-label="${CSS.escape(ariaLabel)}"]`;
+    try {
+      if (document.querySelectorAll(ariaSelector).length <= 3) {
+        alternativeSelectors.push(ariaSelector);
+      }
+    } catch {
+      // Invalid selector
+    }
+  }
+
+  // Strategy 4: Name/placeholder/title attributes
+  const name = element.getAttribute('name');
+  const placeholder = element.getAttribute('placeholder');
+  const title = element.getAttribute('title');
+
+  if (name) {
+    alternativeSelectors.push(`[name="${CSS.escape(name)}"]`);
+  }
+  if (placeholder) {
+    alternativeSelectors.push(`[placeholder="${CSS.escape(placeholder)}"]`);
+  }
+  if (title && title.length < 50) {
+    alternativeSelectors.push(`[title="${CSS.escape(title)}"]`);
+  }
+
+  // Strategy 5: Href for links
+  if (element instanceof HTMLAnchorElement && element.href) {
+    const pathname = new URL(element.href).pathname;
+    if (pathname && pathname !== '/') {
+      alternativeSelectors.push(`a[href*="${CSS.escape(pathname)}"]`);
+    }
+  }
+
+  // Capture parent context (2 levels up)
+  const parentContext: { tag: string; classes: string[]; id?: string }[] = [];
+  let parent = element.parentElement;
+  let depth = 0;
+
+  while (parent && parent !== document.body && depth < 2) {
+    const parentInfo: { tag: string; classes: string[]; id?: string } = {
+      tag: parent.tagName.toLowerCase(),
+      classes: Array.from(parent.classList)
+        .filter(cls =>
+          !cls.match(/^[a-z]{1,2}\d+/i) &&
+          !cls.match(/^\d/) &&
+          cls.length < 30
+        )
+        .slice(0, 3),
+    };
+
+    if (parent.id) {
+      parentInfo.id = parent.id;
+    }
+
+    parentContext.push(parentInfo);
+    parent = parent.parentElement;
+    depth++;
+  }
+
+  // Capture relevant attributes
+  const attributes: Record<string, string> = {};
+  const relevantAttrs = ['id', 'class', 'name', 'type', 'href', 'src', 'alt', 'title', 'role', 'aria-label'];
+
+  for (const attrName of relevantAttrs) {
+    const value = element.getAttribute(attrName);
+    if (value && value.length < 200) {
+      attributes[attrName] = value;
+    }
+  }
+
+  // Add data-testid if present (common in React apps)
+  const testId = element.getAttribute('data-testid') || element.getAttribute('data-test-id');
+  if (testId) {
+    attributes['data-testid'] = testId;
+    alternativeSelectors.unshift(`[data-testid="${CSS.escape(testId)}"]`);
+  }
+
+  return {
+    selector: primarySelector,
+    alternativeSelectors: alternativeSelectors.slice(0, 5), // Keep top 5
+    textAnchor: textContent?.slice(0, 100),
+    parentContext,
+    attributes,
+  };
+}
+
 // Get element text content
 function getElementValue(element: Element): string {
   // For inputs, get value
@@ -262,14 +399,15 @@ function handleClick(event: MouseEvent): void {
   // Skip our own elements
   if (target.closest('.sentinel-highlight')) return;
 
-  // Generate selector and get value
-  const selector = generateSelector(target);
+  // Generate fingerprint (includes selector)
+  const fingerprint = generateFingerprint(target);
   const value = getElementValue(target);
 
   const selectedElement: SelectedElement = {
-    selector,
+    selector: fingerprint.selector,
     value,
     tagName: target.tagName.toLowerCase(),
+    fingerprint,
   };
 
   // Send to popup
@@ -313,10 +451,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           const range = selection.getRangeAt(0);
           const element = range.startContainer.parentElement;
           if (element) {
+            const fingerprint = generateFingerprint(element);
             const selectedElement: SelectedElement = {
-              selector: generateSelector(element),
+              selector: fingerprint.selector,
               value: message.selectionText,
               tagName: element.tagName.toLowerCase(),
+              fingerprint,
             };
             chrome.runtime.sendMessage({
               action: 'elementSelected',
