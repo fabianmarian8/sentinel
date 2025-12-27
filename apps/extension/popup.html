@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400, initial-scale=1.0">
+  <title>Sentinel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🔍</span>
+        <span class="logo-text">Sentinel</span>
+      </div>
+      <button id="settings-btn" class="icon-btn" title="Settings">⚙️</button>
+    </header>
+
+    <main class="main">
+      <!-- Login view -->
+      <div id="login-view" class="view">
+        <h2 id="auth-title">Login to Sentinel</h2>
+        <form id="login-form">
+          <input type="email" id="email" placeholder="Email" required>
+          <input type="password" id="password" placeholder="Password" required>
+          <label class="remember-me">
+            <input type="checkbox" id="remember-me">
+            <span>Zapamätať prihlasovacie údaje</span>
+          </label>
+          <button type="submit" class="btn btn-primary" id="auth-submit-btn">Login</button>
+        </form>
+        <p class="text-small text-center">
+          <span id="auth-toggle-text">No account?</span>
+          <a href="#" id="auth-toggle-link">Sign up</a>
+        </p>
+      </div>
+
+      <!-- Picker view -->
+      <div id="picker-view" class="view hidden">
+        <div class="page-info">
+          <h3 id="page-title">Loading...</h3>
+          <p id="page-url" class="text-small text-muted"></p>
+        </div>
+
+        <div class="action-buttons">
+          <button id="start-picker" class="btn btn-primary btn-large">
+            <span>🎯</span> Pick Element
+          </button>
+        </div>
+
+        <div id="selection-preview" class="selection-preview hidden">
+          <h4>Selected Element</h4>
+          <div class="preview-selector">
+            <code id="preview-selector-text"></code>
+          </div>
+          <div class="preview-value">
+            <span class="label">Current Value:</span>
+            <span id="preview-value-text"></span>
+          </div>
+        </div>
+
+        <form id="create-rule-form" class="hidden">
+          <h4>Create Monitoring Rule</h4>
+          <input type="text" id="rule-name" placeholder="Rule name" required>
+          <select id="rule-type" required>
+            <option value="">Select type...</option>
+            <option value="price">Price</option>
+            <option value="availability">Availability</option>
+            <option value="text">Text Content</option>
+            <option value="number">Number</option>
+          </select>
+          <select id="workspace-id" required>
+            <option value="">Select workspace...</option>
+          </select>
+          <div class="form-row">
+            <label>Check every:</label>
+            <select id="interval">
+              <option value="300">5 minutes</option>
+              <option value="900">15 minutes</option>
+              <option value="1800">30 minutes</option>
+              <option value="3600" selected>1 hour</option>
+              <option value="14400">4 hours</option>
+              <option value="86400">Daily</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-success">Create Rule</button>
+        </form>
+
+        <!-- My Rules Section -->
+        <div class="my-rules-section">
+          <h4>📋 My Rules</h4>
+          <div id="rules-list" class="rules-list">
+            <p class="text-muted text-center">Loading rules...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status view (hidden, kept for compatibility) -->
+      <div id="status-view" class="view hidden">
+      </div>
+
+      <!-- Rule Config Modal -->
+      <div id="rule-config-modal" class="modal hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>⚙️ Nastavenia pravidla</h3>
+            <button class="icon-btn modal-close" id="modal-close">✕</button>
+          </div>
+          <form id="rule-config-form">
+            <input type="hidden" id="config-rule-id">
+
+            <div class="form-group">
+              <label>Upozorniť keď:</label>
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="alert-on-change" checked>
+                  <span>Hodnota sa zmení</span>
+                </label>
+                <label class="checkbox-label" id="alert-increase-label">
+                  <input type="checkbox" id="alert-on-increase">
+                  <span>Cena sa zvýši</span>
+                </label>
+                <label class="checkbox-label" id="alert-decrease-label">
+                  <input type="checkbox" id="alert-on-decrease">
+                  <span>Cena sa zníži</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" id="threshold-group">
+              <label>Upozorniť ak hodnota:</label>
+              <div class="threshold-row">
+                <select id="threshold-type">
+                  <option value="">Bez limitu</option>
+                  <option value="above">Presiahne</option>
+                  <option value="below">Klesne pod</option>
+                </select>
+                <input type="number" id="threshold-value" placeholder="Hodnota" step="0.01">
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Uložiť nastavenia</button>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <a href="https://sentinel.taxinearme.sk/api/docs" target="_blank">Open API Docs</a>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

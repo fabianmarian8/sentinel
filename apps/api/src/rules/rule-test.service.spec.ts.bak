@@ -1,0 +1,258 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
+import { RuleTestService } from './rule-test.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+// Mock extractor module
+jest.mock('@sentinel/extractor', () => ({
+  extract: jest.fn(),
+  detectBlock: jest.fn(),
+  smartFetch: jest.fn(),
+}));
+
+import { smartFetch, extract, detectBlock } from '@sentinel/extractor';
+
+const mockSmartFetch = smartFetch as jest.Mock;
+const mockExtract = extract as jest.Mock;
+const mockDetectBlock = detectBlock as jest.Mock;
+
+describe('RuleTestService', () => {
+  let service: RuleTestService;
+
+  const mockPrisma = {
+    rule: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  const mockRule = {
+    id: 'rule-1',
+    name: 'Test Rule',
+    ruleType: 'price',
+    extraction: {
+      method: 'css',
+      selector: '.price',
+      attribute: 'text',
+      postprocess: [],
+      fallbackSelectors: [],
+    },
+    source: {
+      url: 'https://example.com/product',
+      fetchProfile: {
+        mode: 'http',
+        userAgent: 'Test Agent',
+        headers: null,
+        renderWaitMs: null,
+      },
+    },
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RuleTestService,
+        {
+          provide: PrismaService,
+          useValue: mockPrisma,
+        },
+      ],
+    }).compile();
+
+    service = module.get<RuleTestService>(RuleTestService);
+
+    // Reset mocks
+    jest.clearAllMocks();
+  });
+
+  describe('testRule', () => {
+    it('should throw NotFoundException for non-existent rule', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(null);
+
+      await expect(service.testRule('non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should return success when fetch and extract succeed', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      mockSmartFetch.mockResolvedValue({
+        success: true,
+        html: '<div class="price">$99.99</div>',
+        httpStatus: 200,
+        finalUrl: 'https://example.com/product',
+        usedMode: 'http',
+        errorCode: null,
+        errorDetail: null,
+      });
+
+      mockExtract.mockReturnValue({
+        success: true,
+        value: '$99.99',
+        error: null,
+        fallbackUsed: false,
+        selectorUsed: '.price',
+      });
+
+      mockDetectBlock.mockReturnValue(null);
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.success).toBe(true);
+      expect(result.fetch.httpStatus).toBe(200);
+      expect(result.fetch.blockDetected).toBe(false);
+      expect(result.extraction.success).toBe(true);
+      expect(result.extraction.rawValue).toBe('$99.99');
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should return errors when fetch fails', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      mockSmartFetch.mockResolvedValue({
+        success: false,
+        html: null,
+        httpStatus: null,
+        finalUrl: null,
+        usedMode: 'http',
+        errorCode: 'FETCH_TIMEOUT',
+        errorDetail: 'Request timed out',
+      });
+
+      mockDetectBlock.mockReturnValue(null);
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.success).toBe(false);
+      expect(result.fetch.errorCode).toBe('FETCH_TIMEOUT');
+      expect(result.extraction.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should detect blocks and add warnings', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      mockSmartFetch.mockResolvedValue({
+        success: true,
+        html: '<html>Cloudflare challenge...</html>',
+        httpStatus: 403,
+        finalUrl: 'https://example.com/product',
+        usedMode: 'http',
+        errorCode: null,
+        errorDetail: null,
+      });
+
+      mockExtract.mockReturnValue({
+        success: false,
+        value: null,
+        error: 'Selector not found',
+        fallbackUsed: false,
+        selectorUsed: '.price',
+      });
+
+      mockDetectBlock.mockReturnValue({ blockType: 'cloudflare', confidence: 'high' });
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.fetch.blockDetected).toBe(true);
+      expect(result.fetch.blockType).toBe('cloudflare');
+      expect(result.warnings.some((w) => w.includes('Block detected'))).toBe(
+        true,
+      );
+    });
+
+    it('should report fallback selector usage', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      mockSmartFetch.mockResolvedValue({
+        success: true,
+        html: '<div class="price-alt">$99.99</div>',
+        httpStatus: 200,
+        finalUrl: 'https://example.com/product',
+        usedMode: 'http',
+        errorCode: null,
+        errorDetail: null,
+      });
+
+      mockExtract.mockReturnValue({
+        success: true,
+        value: '$99.99',
+        error: null,
+        fallbackUsed: true,
+        selectorUsed: '.price-alt',
+      });
+
+      mockDetectBlock.mockReturnValue(null);
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.success).toBe(true);
+      expect(result.extraction.fallbackUsed).toBe(true);
+      expect(
+        result.warnings.some((w) => w.includes('fallback')),
+      ).toBe(true);
+    });
+
+    it('should include timing information', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      mockSmartFetch.mockResolvedValue({
+        success: true,
+        html: '<div class="price">$99.99</div>',
+        httpStatus: 200,
+        finalUrl: 'https://example.com/product',
+        usedMode: 'http',
+        errorCode: null,
+        errorDetail: null,
+      });
+
+      mockExtract.mockReturnValue({
+        success: true,
+        value: '$99.99',
+        error: null,
+      });
+
+      mockDetectBlock.mockReturnValue(null);
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.timing).toBeDefined();
+      expect(typeof result.timing.fetchMs).toBe('number');
+      expect(typeof result.timing.extractMs).toBe('number');
+      expect(typeof result.timing.totalMs).toBe('number');
+      expect(result.timing.totalMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should include HTML sample in response', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(mockRule);
+
+      const longHtml = '<html>' + 'x'.repeat(1000) + '</html>';
+
+      mockSmartFetch.mockResolvedValue({
+        success: true,
+        html: longHtml,
+        httpStatus: 200,
+        finalUrl: 'https://example.com/product',
+        usedMode: 'http',
+        errorCode: null,
+        errorDetail: null,
+      });
+
+      mockExtract.mockReturnValue({
+        success: true,
+        value: 'test',
+        error: null,
+        fallbackUsed: false,
+        selectorUsed: '.price',
+      });
+
+      mockDetectBlock.mockReturnValue(null);
+
+      const result = await service.testRule('rule-1');
+
+      expect(result.html).toBeDefined();
+      expect(result.html!.totalLength).toBe(longHtml.length);
+      expect(result.html!.sample.length).toBeLessThanOrEqual(503); // 500 + "..."
+    });
+  });
+});

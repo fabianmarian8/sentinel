@@ -238,17 +238,19 @@ model Observation {
 }
 
 model Alert {
-  id           String        @id @default(cuid())
-  ruleId       String        @map("rule_id")
-  triggeredAt  DateTime      @default(now()) @map("triggered_at")
-  severity     AlertSeverity
-  title        String
-  body         String        @db.Text
-  channelsSent Json?         @map("channels_sent") // which channels received this alert
-  dedupeKey    String        @unique @map("dedupe_key") // prevent duplicate alerts
-  resolvedAt   DateTime?     @map("resolved_at")
+  id              String        @id @default(cuid())
+  ruleId          String        @map("rule_id")
+  triggeredAt     DateTime      @default(now()) @map("triggered_at")
+  severity        AlertSeverity
+  title           String
+  body            String        @db.Text
+  channelsSent    Json?         @map("channels_sent") // which channels received this alert
+  dedupeKey       String        @unique @map("dedupe_key") // prevent duplicate alerts
+  acknowledgedAt  DateTime?     @map("acknowledged_at")
+  acknowledgedBy  String?       @map("acknowledged_by")
+  resolvedAt      DateTime?     @map("resolved_at")
 
-  rule         Rule          @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  rule            Rule          @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@index([ruleId])
   @@index([triggeredAt])

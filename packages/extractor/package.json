@@ -17,10 +17,14 @@
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
-    "puppeteer": "^21.9.0",
-    "@sentinel/shared": "workspace:*"
+    "playwright-core": "^1.40.0",
+    "undici": "^6.4.0",
+    "@sentinel/shared": "workspace:*",
+    "xpath": "^0.0.34",
+    "@xmldom/xmldom": "^0.8.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.40.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",

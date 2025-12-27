@@ -1,0 +1,279 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { HealthScoreService } from './health-score.service';
+import { PrismaService } from '../prisma/prisma.service';
+import type { ErrorCode } from '@sentinel/shared';
+
+describe('HealthScoreService', () => {
+  let service: HealthScoreService;
+
+  const mockPrisma = {
+    rule: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn(),
+    },
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        HealthScoreService,
+        {
+          provide: PrismaService,
+          useValue: mockPrisma,
+        },
+      ],
+    }).compile();
+
+    service = module.get<HealthScoreService>(HealthScoreService);
+
+    // Reset mocks
+    jest.clearAllMocks();
+  });
+
+  describe('getPenalty', () => {
+    it('should return 0 for null error code', () => {
+      expect(service.getPenalty(null)).toBe(0);
+    });
+
+    it('should return correct penalty for FETCH_TIMEOUT', () => {
+      expect(service.getPenalty('FETCH_TIMEOUT' as ErrorCode)).toBe(5);
+    });
+
+    it('should return correct penalty for CAPTCHA_BLOCK', () => {
+      expect(service.getPenalty('CAPTCHA_BLOCK' as ErrorCode)).toBe(20);
+    });
+
+    it('should return correct penalty for SELECTOR_BROKEN', () => {
+      expect(service.getPenalty('SELECTOR_BROKEN' as ErrorCode)).toBe(25);
+    });
+
+    it('should return UNKNOWN penalty for unrecognized errors', () => {
+      expect(service.getPenalty('SOME_UNKNOWN_ERROR' as ErrorCode)).toBe(10);
+    });
+  });
+
+  describe('updateHealthScore', () => {
+    it('should increase health on success', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 80,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.updateHealthScore({
+        ruleId: 'rule-1',
+        errorCode: null,
+        usedFallback: false,
+      });
+
+      expect(result.previousScore).toBe(80);
+      expect(result.newScore).toBe(85);
+      expect(result.delta).toBe(5);
+
+      expect(mockPrisma.rule.update).toHaveBeenCalledWith({
+        where: { id: 'rule-1' },
+        data: {
+          healthScore: 85,
+          lastErrorCode: null,
+          lastErrorAt: undefined,
+        },
+      });
+    });
+
+    it('should cap health at 100', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 98,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.updateHealthScore({
+        ruleId: 'rule-1',
+        errorCode: null,
+        usedFallback: false,
+      });
+
+      expect(result.newScore).toBe(100);
+    });
+
+    it('should apply small penalty for fallback usage', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 80,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.updateHealthScore({
+        ruleId: 'rule-1',
+        errorCode: null,
+        usedFallback: true,
+      });
+
+      // +5 recovery - 2 fallback penalty = +3
+      expect(result.delta).toBe(3);
+      expect(result.newScore).toBe(83);
+    });
+
+    it('should decrease health on error', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 100,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.updateHealthScore({
+        ruleId: 'rule-1',
+        errorCode: 'FETCH_TIMEOUT' as ErrorCode,
+        usedFallback: false,
+      });
+
+      expect(result.previousScore).toBe(100);
+      expect(result.newScore).toBe(95);
+      expect(result.delta).toBe(-5);
+
+      expect(mockPrisma.rule.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            healthScore: 95,
+            lastErrorCode: 'FETCH_TIMEOUT',
+          }),
+        }),
+      );
+    });
+
+    it('should not go below 0', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 10,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.updateHealthScore({
+        ruleId: 'rule-1',
+        errorCode: 'SELECTOR_BROKEN' as ErrorCode, // -25
+        usedFallback: false,
+      });
+
+      expect(result.newScore).toBe(0);
+    });
+
+    it('should throw error for non-existent rule', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateHealthScore({
+          ruleId: 'non-existent',
+          errorCode: null,
+          usedFallback: false,
+        }),
+      ).rejects.toThrow('Rule not found');
+    });
+  });
+
+  describe('resetHealthScore', () => {
+    it('should reset health to 100', async () => {
+      mockPrisma.rule.findUnique.mockResolvedValue({
+        id: 'rule-1',
+        healthScore: 45,
+      });
+      mockPrisma.rule.update.mockResolvedValue({});
+
+      const result = await service.resetHealthScore('rule-1');
+
+      expect(result.previousScore).toBe(45);
+      expect(result.newScore).toBe(100);
+      expect(result.delta).toBe(55);
+
+      expect(mockPrisma.rule.update).toHaveBeenCalledWith({
+        where: { id: 'rule-1' },
+        data: {
+          healthScore: 100,
+          lastErrorCode: null,
+          lastErrorAt: null,
+        },
+      });
+    });
+  });
+
+  describe('getWorkspaceHealthSummary', () => {
+    it('should return correct summary', async () => {
+      mockPrisma.rule.findMany.mockResolvedValue([
+        { healthScore: 100 }, // healthy
+        { healthScore: 90 },  // healthy
+        { healthScore: 70 },  // warning
+        { healthScore: 55 },  // warning
+        { healthScore: 30 },  // critical
+      ]);
+
+      const summary = await service.getWorkspaceHealthSummary('workspace-1');
+
+      expect(summary.totalRules).toBe(5);
+      expect(summary.healthyRules).toBe(2);
+      expect(summary.warningRules).toBe(2);
+      expect(summary.criticalRules).toBe(1);
+      expect(summary.averageScore).toBe(69);
+    });
+
+    it('should return defaults for empty workspace', async () => {
+      mockPrisma.rule.findMany.mockResolvedValue([]);
+
+      const summary = await service.getWorkspaceHealthSummary('workspace-1');
+
+      expect(summary.totalRules).toBe(0);
+      expect(summary.averageScore).toBe(100);
+    });
+  });
+
+  describe('getLowHealthRules', () => {
+    it('should return rules below threshold', async () => {
+      mockPrisma.rule.findMany.mockResolvedValue([
+        {
+          id: 'rule-1',
+          name: 'Low Health Rule',
+          healthScore: 30,
+          lastErrorCode: 'CAPTCHA_BLOCK',
+          lastErrorAt: new Date('2024-01-01'),
+          source: { url: 'https://example.com' },
+        },
+      ]);
+
+      const rules = await service.getLowHealthRules('workspace-1', 50);
+
+      expect(rules).toHaveLength(1);
+      expect(rules[0]!.id).toBe('rule-1');
+      expect(rules[0]!.healthScore).toBe(30);
+      expect(rules[0]!.lastErrorCode).toBe('CAPTCHA_BLOCK');
+    });
+  });
+
+  describe('projectHealthScore', () => {
+    it('should project health after multiple errors', () => {
+      const projected = service.projectHealthScore(100, 'FETCH_TIMEOUT' as ErrorCode, 5);
+      // 100 - (5 * 5) = 75
+      expect(projected).toBe(75);
+    });
+
+    it('should not go below 0', () => {
+      const projected = service.projectHealthScore(50, 'SELECTOR_BROKEN' as ErrorCode, 10);
+      // 50 - (25 * 10) = -200 -> capped at 0
+      expect(projected).toBe(0);
+    });
+  });
+
+  describe('runsToFullHealth', () => {
+    it('should calculate runs needed for recovery', () => {
+      // From 80 to 100 = 20 points = 4 runs (at 5 per run)
+      expect(service.runsToFullHealth(80)).toBe(4);
+    });
+
+    it('should return 0 when already at full health', () => {
+      expect(service.runsToFullHealth(100)).toBe(0);
+    });
+
+    it('should round up for partial runs', () => {
+      // From 97 to 100 = 3 points = 1 run (ceil of 0.6)
+      expect(service.runsToFullHealth(97)).toBe(1);
+    });
+  });
+});

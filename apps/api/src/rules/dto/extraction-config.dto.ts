@@ -1,0 +1,85 @@
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsObject,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+export enum ExtractionMethod {
+  CSS_SELECTOR = 'css',
+  XPATH = 'xpath',
+  JSON_PATH = 'jsonpath',
+  REGEX = 'regex',
+}
+
+export enum PostProcessType {
+  TRIM = 'trim',
+  LOWERCASE = 'lowercase',
+  UPPERCASE = 'uppercase',
+  REPLACE = 'replace',
+  EXTRACT_NUMBER = 'extract_number',
+}
+
+export class PostProcessStepDto {
+  @ApiProperty({
+    description: 'Type of post-processing step',
+    enum: PostProcessType,
+    example: PostProcessType.TRIM,
+  })
+  @IsEnum(PostProcessType)
+  type!: PostProcessType;
+
+  @ApiPropertyOptional({
+    description: 'Additional parameters for the post-process step',
+    example: { pattern: '\\s+', replacement: ' ' },
+  })
+  @IsObject()
+  @IsOptional()
+  params?: Record<string, any>;
+}
+
+export class ExtractionConfigDto {
+  @ApiProperty({
+    description: 'Extraction method to use',
+    enum: ExtractionMethod,
+    example: ExtractionMethod.CSS_SELECTOR,
+  })
+  @IsEnum(ExtractionMethod)
+  method!: ExtractionMethod;
+
+  @ApiProperty({
+    description: 'Selector/path/pattern for extraction',
+    example: '.price-value',
+  })
+  @IsString()
+  selector!: string;
+
+  @ApiPropertyOptional({
+    description: 'Attribute to extract (for HTML elements)',
+    example: 'data-price',
+  })
+  @IsString()
+  @IsOptional()
+  attribute?: string;
+
+  @ApiPropertyOptional({
+    description: 'Post-processing steps to apply to extracted value',
+    type: [PostProcessStepDto],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PostProcessStepDto)
+  @IsOptional()
+  postProcess?: PostProcessStepDto[];
+
+  @ApiPropertyOptional({
+    description: 'Whether to extract all matching elements or just the first',
+    example: false,
+  })
+  @IsOptional()
+  extractAll?: boolean;
+}
