@@ -1,0 +1,35 @@
+{
+  "version": "2.1.0",
+  "startupId": "8993F893-998E-4F4F-9FF6-0AFF6709F5F3",
+  "phase": "bootstrap",
+  "subPhase": "initializing",
+  "prdPath": "/Users/marianfabian/Desktop/projekt sledovanie zmien.docx",
+  "prdHash": "",
+  "prdLastModified": "",
+  "projectName": "Sentinel - Change Intelligence Platform",
+  "agents": {
+    "active": [],
+    "idle": [],
+    "failed": [],
+    "totalSpawned": 0,
+    "totalTerminated": 0
+  },
+  "circuitBreakers": {},
+  "metrics": {
+    "tasksCompleted": 0,
+    "tasksFailed": 0,
+    "tasksInDeadLetter": 0,
+    "deployments": 0,
+    "rollbacks": 0,
+    "incidentsDetected": 0,
+    "incidentsResolved": 0,
+    "agentComputeMinutes": 0
+  },
+  "lastCheckpoint": "",
+  "lastBackup": "",
+  "lastLogRotation": "",
+  "currentRelease": "0.0.0",
+  "systemHealth": "green",
+  "pausedAt": null,
+  "pauseReason": null
+}

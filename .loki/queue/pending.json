@@ -1,0 +1,593 @@
+{
+  "tasks": [
+    {
+      "id": "M1-001",
+      "idempotencyKey": "m1-prisma-schema",
+      "type": "eng-database",
+      "priority": 10,
+      "dependencies": [],
+      "payload": {
+        "action": "implement",
+        "target": "packages/shared/prisma/schema.prisma",
+        "description": "Create Prisma schema with all entities: users, workspaces, workspace_members, sources, fetch_profiles, rules, rule_state, runs, observations, alerts, notification_channels"
+      },
+      "createdAt": "2025-12-27T12:00:00Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-002",
+      "idempotencyKey": "m1-monorepo-setup",
+      "type": "eng-backend",
+      "priority": 10,
+      "dependencies": [],
+      "payload": {
+        "action": "implement",
+        "target": "monorepo",
+        "description": "Setup pnpm workspaces monorepo: apps/api, apps/worker, apps/web, apps/extension, packages/shared, packages/extractor, packages/notify, packages/storage"
+      },
+      "createdAt": "2025-12-27T12:00:01Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-003",
+      "idempotencyKey": "m1-shared-types",
+      "type": "eng-backend",
+      "priority": 9,
+      "dependencies": ["M1-002"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/shared/src/domain.ts",
+        "description": "Create TypeScript domain types: UUID, WorkspaceType, RuleType, FetchMode, ErrorCode, ExtractionConfig, NormalizationConfig, AlertPolicy, ScheduleConfig"
+      },
+      "createdAt": "2025-12-27T12:00:02Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-004",
+      "idempotencyKey": "m1-nestjs-api-scaffold",
+      "type": "eng-backend",
+      "priority": 9,
+      "dependencies": ["M1-002", "M1-001"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api",
+        "description": "Setup NestJS API app with: Prisma module, JWT auth, OpenAPI/Swagger, class-validator DTOs, throttler rate limiting"
+      },
+      "createdAt": "2025-12-27T12:00:03Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-005",
+      "idempotencyKey": "m1-auth-module",
+      "type": "eng-backend",
+      "priority": 8,
+      "dependencies": ["M1-004"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/auth",
+        "description": "Implement auth module: POST /auth/register, POST /auth/login, POST /auth/logout, JWT strategy, bcrypt password hashing"
+      },
+      "createdAt": "2025-12-27T12:00:04Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-006",
+      "idempotencyKey": "m1-workspaces-crud",
+      "type": "eng-backend",
+      "priority": 8,
+      "dependencies": ["M1-005"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/workspaces",
+        "description": "Implement workspaces CRUD: GET /workspaces, POST /workspaces, GET /workspaces/:id, workspace members management"
+      },
+      "createdAt": "2025-12-27T12:00:05Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-007",
+      "idempotencyKey": "m1-sources-crud",
+      "type": "eng-backend",
+      "priority": 8,
+      "dependencies": ["M1-006"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/sources",
+        "description": "Implement sources CRUD: POST /sources, GET /sources, GET /sources/:id with URL normalization and domain extraction"
+      },
+      "createdAt": "2025-12-27T12:00:06Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-008",
+      "idempotencyKey": "m1-rules-crud",
+      "type": "eng-backend",
+      "priority": 8,
+      "dependencies": ["M1-007"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/rules",
+        "description": "Implement rules CRUD: POST /rules, GET /rules, GET /rules/:id, PATCH /rules/:id with extraction/normalization/schedule/alertPolicy validation"
+      },
+      "createdAt": "2025-12-27T12:00:07Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-009",
+      "idempotencyKey": "m1-bullmq-setup",
+      "type": "eng-backend",
+      "priority": 8,
+      "dependencies": ["M1-002"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/worker",
+        "description": "Setup BullMQ worker app with queues: rules:run, alerts:dispatch. Job schemas, retry policies, exponential backoff"
+      },
+      "createdAt": "2025-12-27T12:00:08Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-010",
+      "idempotencyKey": "m1-scheduler",
+      "type": "eng-backend",
+      "priority": 7,
+      "dependencies": ["M1-008", "M1-009"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/scheduler",
+        "description": "Implement tick scheduler: every 5-10s select due rules, enqueue to BullMQ, update nextRunAt with interval+jitter"
+      },
+      "createdAt": "2025-12-27T12:00:09Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-011",
+      "idempotencyKey": "m1-http-fetcher",
+      "type": "eng-backend",
+      "priority": 7,
+      "dependencies": ["M1-009"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/fetcher/http.ts",
+        "description": "Implement HTTP fetcher with undici: 15s timeout, user-agent, headers, timing capture, redirect handling"
+      },
+      "createdAt": "2025-12-27T12:00:10Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-012",
+      "idempotencyKey": "m1-extraction-engine",
+      "type": "eng-backend",
+      "priority": 7,
+      "dependencies": ["M1-011", "M1-003"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/extraction",
+        "description": "Implement extraction engine: CSS selector (cheerio), XPath, regex, postprocess pipeline, fallback selectors"
+      },
+      "createdAt": "2025-12-27T12:00:11Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M1-013",
+      "idempotencyKey": "m1-runs-persist",
+      "type": "eng-backend",
+      "priority": 6,
+      "dependencies": ["M1-012", "M1-001"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/worker/src/processors/run.processor.ts",
+        "description": "Implement run processor: fetch HTML, extract value, persist run + observation records"
+      },
+      "createdAt": "2025-12-27T12:00:12Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-001",
+      "idempotencyKey": "m2-price-normalization",
+      "type": "eng-backend",
+      "priority": 6,
+      "dependencies": ["M1-003"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/normalization/price.ts",
+        "description": "Implement price normalization: locale-aware parsing, decimal/thousand separators, currency stripping"
+      },
+      "createdAt": "2025-12-27T12:00:13Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-002",
+      "idempotencyKey": "m2-availability-normalization",
+      "type": "eng-backend",
+      "priority": 6,
+      "dependencies": ["M1-003"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/normalization/availability.ts",
+        "description": "Implement availability normalization: mapping rules, regex patterns for lead_time, defaultStatus"
+      },
+      "createdAt": "2025-12-27T12:00:14Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-003",
+      "idempotencyKey": "m2-antiflap",
+      "type": "eng-backend",
+      "priority": 6,
+      "dependencies": ["M1-013"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/antiflap",
+        "description": "Implement anti-flap state machine: rule_state table, requireConsecutive logic, confirmedChange detection"
+      },
+      "createdAt": "2025-12-27T12:00:15Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-004",
+      "idempotencyKey": "m2-change-detection",
+      "type": "eng-backend",
+      "priority": 6,
+      "dependencies": ["M2-001", "M2-002", "M2-003"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/change-detection",
+        "description": "Implement change detection: price/availability/text comparison, changeKind enum"
+      },
+      "createdAt": "2025-12-27T12:00:16Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-005",
+      "idempotencyKey": "m2-alerts",
+      "type": "eng-backend",
+      "priority": 5,
+      "dependencies": ["M2-004"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/worker/src/processors/alert.processor.ts",
+        "description": "Implement alert conditions: price_below, price_above, price_drop_percent, availability_is, text_changed"
+      },
+      "createdAt": "2025-12-27T12:00:17Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-006",
+      "idempotencyKey": "m2-dedupe",
+      "type": "eng-backend",
+      "priority": 5,
+      "dependencies": ["M2-005"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/worker/src/services/dedupe.service.ts",
+        "description": "Implement alert deduplication: dedupe_key hash, cooldownSeconds check"
+      },
+      "createdAt": "2025-12-27T12:00:18Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-007",
+      "idempotencyKey": "m2-email",
+      "type": "eng-backend",
+      "priority": 5,
+      "dependencies": ["M2-006"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/notify/src/email.ts",
+        "description": "Implement email notifications: SMTP transport, HTML templates, retry logic"
+      },
+      "createdAt": "2025-12-27T12:00:19Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M2-008",
+      "idempotencyKey": "m2-inapp",
+      "type": "eng-backend",
+      "priority": 5,
+      "dependencies": ["M2-006"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/alerts",
+        "description": "Implement in-app notifications: GET /alerts, ack/resolve endpoints, SSE real-time"
+      },
+      "createdAt": "2025-12-27T12:00:20Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M3-001",
+      "idempotencyKey": "m3-block-detection",
+      "type": "eng-backend",
+      "priority": 4,
+      "dependencies": ["M1-011"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/fetcher/block-detection.ts",
+        "description": "Implement block detection: 403/429 codes, Cloudflare detection, captcha keywords, error taxonomy"
+      },
+      "createdAt": "2025-12-27T12:00:21Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M3-002",
+      "idempotencyKey": "m3-playwright",
+      "type": "eng-backend",
+      "priority": 4,
+      "dependencies": ["M3-001"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/fetcher/headless.ts",
+        "description": "Implement Playwright headless fetcher: browser context, renderWaitMs, screenshots, 45s timeout"
+      },
+      "createdAt": "2025-12-27T12:00:22Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M3-003",
+      "idempotencyKey": "m3-fallback",
+      "type": "eng-backend",
+      "priority": 4,
+      "dependencies": ["M3-002"],
+      "payload": {
+        "action": "implement",
+        "target": "packages/extractor/src/fetcher/index.ts",
+        "description": "Implement fetch fallback: HTTP first, escalate to headless if blocked"
+      },
+      "createdAt": "2025-12-27T12:00:23Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M3-004",
+      "idempotencyKey": "m3-rate-limiter",
+      "type": "eng-backend",
+      "priority": 4,
+      "dependencies": ["M1-009"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/worker/src/services/rate-limiter.service.ts",
+        "description": "Implement domain-level rate limiting: Redis token bucket, configurable rates"
+      },
+      "createdAt": "2025-12-27T12:00:24Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M3-005",
+      "idempotencyKey": "m3-health-score",
+      "type": "eng-backend",
+      "priority": 4,
+      "dependencies": ["M1-013", "M3-001"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/rules/health-score.service.ts",
+        "description": "Implement health score: start 100, penalties for errors, display in rule detail"
+      },
+      "createdAt": "2025-12-27T12:00:25Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M4-001",
+      "idempotencyKey": "m4-test-endpoint",
+      "type": "eng-backend",
+      "priority": 3,
+      "dependencies": ["M1-013", "M2-001"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/api/src/rules/test.controller.ts",
+        "description": "Implement POST /rules/:id/test: synchronous run, return debug info"
+      },
+      "createdAt": "2025-12-27T12:00:26Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M4-002",
+      "idempotencyKey": "m4-nextjs",
+      "type": "eng-frontend",
+      "priority": 3,
+      "dependencies": ["M1-008"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/web",
+        "description": "Setup Next.js dashboard: TailwindCSS, shadcn/ui, API client, auth context"
+      },
+      "createdAt": "2025-12-27T12:00:27Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M4-003",
+      "idempotencyKey": "m4-watchlist",
+      "type": "eng-frontend",
+      "priority": 3,
+      "dependencies": ["M4-002"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/web/src/pages/watchlist",
+        "description": "Implement Watchlist view: rule cards, sparklines, status badges, filters"
+      },
+      "createdAt": "2025-12-27T12:00:28Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M4-004",
+      "idempotencyKey": "m4-rule-detail",
+      "type": "eng-frontend",
+      "priority": 3,
+      "dependencies": ["M4-003"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/web/src/pages/rules/[id]",
+        "description": "Implement Rule detail: Overview, History chart, Extraction, Alerts, Debug tabs"
+      },
+      "createdAt": "2025-12-27T12:00:29Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    },
+    {
+      "id": "M4-005",
+      "idempotencyKey": "m4-extension",
+      "type": "eng-frontend",
+      "priority": 2,
+      "dependencies": ["M4-001"],
+      "payload": {
+        "action": "implement",
+        "target": "apps/extension",
+        "description": "Implement Chrome MV3 extension: element picker, selector generation, save to workspace"
+      },
+      "createdAt": "2025-12-27T12:00:30Z",
+      "claimedBy": null,
+      "claimedAt": null,
+      "timeout": 3600,
+      "retries": 0,
+      "maxRetries": 3,
+      "backoffSeconds": 60
+    }
+  ]
+}

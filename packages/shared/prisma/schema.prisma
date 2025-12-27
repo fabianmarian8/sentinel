@@ -1,0 +1,273 @@
+// Sentinel - Change Intelligence Platform
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================
+// ENUMS
+// =====================
+
+enum WorkspaceType {
+  ecommerce
+  competitor
+  procurement
+}
+
+enum WorkspaceRole {
+  owner
+  admin
+  member
+  viewer
+}
+
+enum FetchMode {
+  http
+  headless
+}
+
+enum RuleType {
+  price
+  availability
+  text
+  number
+  json_field
+}
+
+enum AlertSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum NotificationChannelType {
+  email
+  telegram
+  slack
+  webhook
+}
+
+enum ChangeKind {
+  new_value
+  value_changed
+  value_disappeared
+  format_changed
+  threshold_exceeded
+}
+
+// =====================
+// MODELS
+// =====================
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  passwordHash      String             @map("password_hash")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  lastLoginAt       DateTime?          @map("last_login_at")
+
+  ownedWorkspaces   Workspace[]        @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String        @id @default(cuid())
+  ownerId   String        @map("owner_id")
+  type      WorkspaceType
+  name      String
+  timezone  String        @default("UTC")
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  owner     User          @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   WorkspaceMember[]
+  sources   Source[]
+  fetchProfiles FetchProfile[]
+  notificationChannels NotificationChannel[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole
+  joinedAt    DateTime      @default(now()) @map("joined_at")
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model FetchProfile {
+  id              String    @id @default(cuid())
+  workspaceId     String    @map("workspace_id")
+  name            String
+  mode            FetchMode @default(http)
+  userAgent       String?   @map("user_agent")
+  cookies         Json?
+  headers         Json?
+  proxyPool       String?   @map("proxy_pool")
+  renderWaitMs    Int?      @map("render_wait_ms")
+  screenshotOnChange Boolean @default(false) @map("screenshot_on_change")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sources         Source[]
+
+  @@index([workspaceId])
+  @@map("fetch_profiles")
+}
+
+model Source {
+  id              String        @id @default(cuid())
+  workspaceId     String        @map("workspace_id")
+  url             String
+  canonicalUrl    String?       @map("canonical_url")
+  domain          String
+  fetchProfileId  String?       @map("fetch_profile_id")
+  tags            Json?         @default("[]")
+  enabled         Boolean       @default(true)
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fetchProfile    FetchProfile? @relation(fields: [fetchProfileId], references: [id], onDelete: SetNull)
+  rules           Rule[]
+
+  @@index([workspaceId])
+  @@index([domain])
+  @@index([fetchProfileId])
+  @@map("sources")
+}
+
+model Rule {
+  id            String    @id @default(cuid())
+  sourceId      String    @map("source_id")
+  name          String
+  ruleType      RuleType  @map("rule_type")
+  extraction    Json      // selector, jsonPath, regex config
+  normalization Json?     // transform, unit conversion config
+  schedule      Json      // cron, interval config
+  alertPolicy   Json?     @map("alert_policy") // thresholds, conditions
+  enabled       Boolean   @default(true)
+  healthScore   Float?    @map("health_score") @default(100.0)
+  lastErrorCode String?   @map("last_error_code")
+  lastErrorAt   DateTime? @map("last_error_at")
+  nextRunAt     DateTime? @map("next_run_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  source        Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  state         RuleState?
+  runs          Run[]
+  observations  Observation[]
+  alerts        Alert[]
+
+  @@index([sourceId])
+  @@index([nextRunAt])
+  @@index([enabled, nextRunAt])
+  @@map("rules")
+}
+
+model RuleState {
+  id             String   @id @default(cuid())
+  ruleId         String   @unique @map("rule_id")
+  lastStable     Json?    @map("last_stable") // last confirmed stable value
+  candidate      Json?    // potential new value
+  candidateCount Int      @default(0) @map("candidate_count") // confirmation counter
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  rule           Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@map("rule_state")
+}
+
+model Run {
+  id              String    @id @default(cuid())
+  ruleId          String    @map("rule_id")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  fetchModeUsed   FetchMode @map("fetch_mode_used")
+  httpStatus      Int?      @map("http_status")
+  errorCode       String?   @map("error_code")
+  errorDetail     String?   @map("error_detail")
+  timings         Json?     // fetch, parse, process timings
+  blockDetected   Boolean   @default(false) @map("block_detected")
+  contentHash     String?   @map("content_hash") // hash of extracted content
+  rawSample       String?   @map("raw_sample") // sample of raw HTML/JSON
+  screenshotPath  String?   @map("screenshot_path")
+
+  rule            Rule      @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  observations    Observation[]
+
+  @@index([ruleId])
+  @@index([startedAt])
+  @@map("runs")
+}
+
+model Observation {
+  id                   String      @id @default(cuid())
+  runId                String      @map("run_id")
+  ruleId               String      @map("rule_id")
+  extractedRaw         String?     @map("extracted_raw") // raw extracted value
+  extractedNormalized  Json?       @map("extracted_normalized") // normalized value with metadata
+  changeDetected       Boolean     @default(false) @map("change_detected")
+  changeKind           ChangeKind? @map("change_kind")
+  diffSummary          String?     @map("diff_summary") // human-readable diff
+  createdAt            DateTime    @default(now()) @map("created_at")
+
+  run                  Run         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rule                 Rule        @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([ruleId])
+  @@index([changeDetected, createdAt])
+  @@map("observations")
+}
+
+model Alert {
+  id           String        @id @default(cuid())
+  ruleId       String        @map("rule_id")
+  triggeredAt  DateTime      @default(now()) @map("triggered_at")
+  severity     AlertSeverity
+  title        String
+  body         String        @db.Text
+  channelsSent Json?         @map("channels_sent") // which channels received this alert
+  dedupeKey    String        @unique @map("dedupe_key") // prevent duplicate alerts
+  resolvedAt   DateTime?     @map("resolved_at")
+
+  rule         Rule          @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([triggeredAt])
+  @@index([dedupeKey])
+  @@map("alerts")
+}
+
+model NotificationChannel {
+  id              String                  @id @default(cuid())
+  workspaceId     String                  @map("workspace_id")
+  type            NotificationChannelType
+  name            String
+  configEncrypted String                  @map("config_encrypted") @db.Text // encrypted JSON config
+  enabled         Boolean                 @default(true)
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  workspace       Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([type, enabled])
+  @@map("notification_channels")
+}

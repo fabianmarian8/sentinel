@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+.cache/
+.temp/
+
+# OS
+Thumbs.db
+
+# Package manager
+.pnpm-debug.log
+.yarn/
+
+# Production
+*.tsbuildinfo
+
+# Chrome extension
+apps/extension/dist/
+apps/extension/build/
+
+# Prisma
+packages/shared/prisma/migrations/
+
+# S3 local testing
+.s3-local/

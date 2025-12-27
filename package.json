@@ -1,0 +1,29 @@
+{
+  "name": "sentinel",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Change Intelligence Platform - Monitor, extract, and analyze critical changes",
+  "keywords": [
+    "change-detection",
+    "web-monitoring",
+    "data-extraction",
+    "intelligence-platform"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@10.20.0",
+  "scripts": {
+    "dev": "pnpm --filter \"./apps/*\" --parallel dev",
+    "build": "pnpm --filter \"./packages/*\" build && pnpm --filter \"./apps/*\" build",
+    "test": "pnpm --filter \"./packages/*\" --filter \"./apps/*\" test",
+    "lint": "pnpm --filter \"./packages/*\" --filter \"./apps/*\" lint",
+    "clean": "pnpm --filter \"./packages/*\" --filter \"./apps/*\" clean && rm -rf node_modules",
+    "typecheck": "pnpm --filter \"./packages/*\" --filter \"./apps/*\" typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
