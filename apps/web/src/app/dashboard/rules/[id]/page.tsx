@@ -49,7 +49,7 @@ interface RuleDetail {
     changeKind: string | null;
     diffSummary?: string;
     createdAt: string;
-    run: { httpStatus: number; errorCode: string | null };
+    run: { httpStatus: number; errorCode: string | null; screenshotPath?: string | null };
   }>;
 }
 
@@ -61,6 +61,7 @@ export default function RuleDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+  const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -354,6 +355,9 @@ export default function RuleDetailPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Change
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Screenshot
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -390,6 +394,27 @@ export default function RuleDetailPage() {
                         <span className="text-gray-400">No change</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-sm">
+                      {obs.run.screenshotPath ? (
+                        <button
+                          onClick={() => setSelectedScreenshot(obs.run.screenshotPath!)}
+                          className="group relative"
+                        >
+                          <img
+                            src={obs.run.screenshotPath}
+                            alt="Screenshot"
+                            className="w-16 h-10 object-cover rounded border border-gray-200 hover:border-primary-500 transition-colors"
+                          />
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded">
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                            </svg>
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -397,6 +422,43 @@ export default function RuleDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* Screenshot Modal */}
+      {selectedScreenshot && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setSelectedScreenshot(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh] w-full">
+            <button
+              onClick={() => setSelectedScreenshot(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img
+              src={selectedScreenshot}
+              alt="Screenshot"
+              className="w-full h-auto max-h-[85vh] object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <a
+              href={selectedScreenshot}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute -bottom-10 left-1/2 -translate-x-1/2 text-white hover:text-gray-300 text-sm flex items-center gap-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Otvoriť v novom okne
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
