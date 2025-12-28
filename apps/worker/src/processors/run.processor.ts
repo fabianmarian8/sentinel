@@ -297,51 +297,51 @@ export class RunProcessor extends WorkerHost {
         usedFallback: actualFetchMode === 'headless',
       });
 
-      // Step 13: Trigger alerts if change confirmed
+      // Step 13: Upload screenshot if captured (always, not just on change)
       let uploadedScreenshotPath: string | null = null;
 
+      this.logger.debug(
+        `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}`,
+      );
+      if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath) {
+        try {
+          const storageClient = getStorageClientAuto();
+          if (storageClient) {
+            const screenshotBuffer = await readFile(screenshotPath);
+            const uploadResult = await storageClient.uploadScreenshot(
+              ruleId,
+              run.id,
+              screenshotBuffer,
+            );
+            uploadedScreenshotPath = uploadResult.url;
+            this.logger.log(
+              `[Job ${job.id}] Screenshot uploaded: ${uploadedScreenshotPath}`,
+            );
+          } else {
+            this.logger.debug(
+              `[Job ${job.id}] Storage client not configured, skipping screenshot upload`,
+            );
+          }
+        } catch (uploadError) {
+          this.logger.warn(
+            `[Job ${job.id}] Screenshot upload error: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`,
+          );
+        }
+      }
+
+      // Update run with screenshot path
+      if (uploadedScreenshotPath) {
+        await this.prisma.run.update({
+          where: { id: run.id },
+          data: { screenshotPath: uploadedScreenshotPath },
+        });
+      }
+
+      // Step 14: Trigger alerts if change confirmed
       if (antiFlipResult.result.confirmedChange) {
         this.logger.log(
           `[Job ${job.id}] Change confirmed for rule ${ruleId}, triggering alerts`,
         );
-
-        // Step 13a: Upload screenshot to storage if captured
-        this.logger.debug(
-          `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}`,
-        );
-        if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath) {
-          try {
-            const storageClient = getStorageClientAuto();
-            if (storageClient) {
-              const screenshotBuffer = await readFile(screenshotPath);
-              const uploadResult = await storageClient.uploadScreenshot(
-                ruleId,
-                run.id,
-                screenshotBuffer,
-              );
-              uploadedScreenshotPath = uploadResult.url;
-              this.logger.log(
-                `[Job ${job.id}] Screenshot uploaded: ${uploadedScreenshotPath}`,
-              );
-            } else {
-              this.logger.debug(
-                `[Job ${job.id}] Storage client not configured, skipping screenshot upload`,
-              );
-            }
-          } catch (uploadError) {
-            this.logger.warn(
-              `[Job ${job.id}] Screenshot upload error: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`,
-            );
-          }
-        }
-
-        // Step 13b: Update run with screenshot path
-        if (uploadedScreenshotPath) {
-          await this.prisma.run.update({
-            where: { id: run.id },
-            data: { screenshotPath: uploadedScreenshotPath },
-          });
-        }
 
         await this.triggerAlerts(rule, normalizedValue, changeResult);
       } else {

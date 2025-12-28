@@ -391,10 +391,13 @@ function formatValue(value: any, ruleType: string): string {
 
   // Handle object values (structured data from worker)
   if (typeof value === 'object') {
-    // Price type: { amount: 123, currency: "€" }
+    // Price/Number type: { value: 123, currency: "EUR" }
+    if ('value' in value && typeof value.value === 'number') {
+      return String(value.value);
+    }
+    // Legacy price format: { amount: 123, currency: "€" }
     if ('amount' in value) {
-      const currency = value.currency || '';
-      return `${currency}${value.amount}`;
+      return String(value.amount);
     }
     // Availability type: { inStock: true/false }
     if ('inStock' in value) {

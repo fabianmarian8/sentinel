@@ -38,6 +38,10 @@ async function fetchUnreadAlertsCount(): Promise<number> {
     const { authToken } = await getStorageData();
     if (!authToken) return 0;
 
+    // Get last seen time from storage
+    const storage = await chrome.storage.local.get(['lastSeenAlertTime']);
+    const lastSeenTime = storage.lastSeenAlertTime;
+
     // Get workspaces first
     const workspaces = await apiRequest<{ id: string }[]>('/workspaces');
     if (!workspaces || workspaces.length === 0) return 0;
@@ -46,7 +50,15 @@ async function fetchUnreadAlertsCount(): Promise<number> {
     const url = `/alerts?workspaceId=${workspaces[0].id}&status=open&limit=100`;
 
     // API returns { alerts: [...], count: N }
-    const response = await apiRequest<{ alerts: { id: string }[]; count: number }>(url);
+    const response = await apiRequest<{ alerts: { id: string; createdAt: string }[]; count: number }>(url);
+
+    // Filter client-side: only count alerts created after lastSeenTime
+    if (lastSeenTime && response?.alerts) {
+      const lastSeenDate = new Date(lastSeenTime);
+      const newAlerts = response.alerts.filter(a => new Date(a.createdAt) > lastSeenDate);
+      return newAlerts.length;
+    }
+
     return response?.count || 0;
   } catch (error) {
     console.error('Failed to fetch alerts count:', error);
