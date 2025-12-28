@@ -17,6 +17,8 @@ interface RuleDetail {
   nextRunAt: string | null;
   createdAt: string;
   screenshotOnChange: boolean;
+  captchaIntervalEnforced?: boolean;
+  originalSchedule?: { intervalSec?: number } | null;
   extraction: {
     method: string;
     selector: string;
@@ -62,6 +64,10 @@ export default function RuleDetailClient() {
   const [isTestRunning, setIsTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditingInterval, setIsEditingInterval] = useState(false);
+  const [newIntervalMinutes, setNewIntervalMinutes] = useState<number>(0);
 
   useEffect(() => {
     if (params.id) {
@@ -147,6 +153,45 @@ export default function RuleDetailClient() {
       setRule((prev) => prev ? { ...prev, screenshotOnChange: !prev.screenshotOnChange } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť nastavenie screenshotov');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!rule) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteRule(rule.id);
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nepodarilo sa vymazať pravidlo');
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleIntervalChange = async () => {
+    if (!rule || newIntervalMinutes <= 0) return;
+    try {
+      await api.updateRule(rule.id, {
+        schedule: {
+          intervalSeconds: newIntervalMinutes * 60,
+          jitterSeconds: rule.schedule.jitterSeconds
+        }
+      });
+      setRule((prev) => prev ? {
+        ...prev,
+        schedule: { ...prev.schedule, intervalSeconds: newIntervalMinutes * 60 }
+      } : null);
+      setIsEditingInterval(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť interval');
+    }
+  };
+
+  const startEditingInterval = () => {
+    if (rule) {
+      setNewIntervalMinutes(rule.schedule.intervalSeconds / 60);
+      setIsEditingInterval(true);
     }
   };
 
@@ -255,6 +300,12 @@ export default function RuleDetailClient() {
                     Resume
                   </button>
                 )}
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Delete
+                </button>
               </div>
             </div>
           </div>
@@ -316,9 +367,63 @@ export default function RuleDetailClient() {
               </div>
               <div>
                 <dt className="text-gray-500">Check Interval</dt>
-                <dd className="font-medium text-gray-900">
-                  Every {rule.schedule.intervalSeconds / 60} minutes
-                </dd>
+                {isEditingInterval ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <select
+                      value={newIntervalMinutes}
+                      onChange={(e) => setNewIntervalMinutes(Number(e.target.value))}
+                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value={5}>5 min</option>
+                      <option value={10}>10 min</option>
+                      <option value={15}>15 min</option>
+                      <option value={30}>30 min</option>
+                      <option value={60}>1 hod</option>
+                      <option value={120}>2 hod</option>
+                      <option value={360}>6 hod</option>
+                      <option value={720}>12 hod</option>
+                      <option value={1440}>24 hod</option>
+                    </select>
+                    <button
+                      onClick={handleIntervalChange}
+                      className="px-2 py-1 bg-primary-600 text-white text-xs rounded hover:bg-primary-700"
+                    >
+                      Uložiť
+                    </button>
+                    <button
+                      onClick={() => setIsEditingInterval(false)}
+                      className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300"
+                    >
+                      Zrušiť
+                    </button>
+                  </div>
+                ) : (
+                  <dd className="font-medium text-gray-900 flex items-center gap-2">
+                    Every {rule.schedule.intervalSeconds / 60} minutes
+                    <button
+                      onClick={startEditingInterval}
+                      className="text-primary-600 hover:text-primary-700 text-xs"
+                    >
+                      (zmeniť)
+                    </button>
+                  </dd>
+                )}
+                {rule.captchaIntervalEnforced && (
+                  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                    <div className="flex items-center gap-1.5">
+                      <span>🔒</span>
+                      <span className="font-medium">CAPTCHA obmedzenie</span>
+                    </div>
+                    <p className="mt-1 text-amber-600">
+                      Stránka vyžaduje CAPTCHA. Interval bol automaticky zmenený na 1 deň pre úsporu nákladov.
+                      {rule.originalSchedule?.intervalSec && (
+                        <span className="block mt-0.5">
+                          Pôvodný interval: {Math.round(rule.originalSchedule.intervalSec / 60)} min
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="pt-3 border-t border-gray-100">
                 <div className="flex items-center justify-between">
@@ -461,6 +566,43 @@ export default function RuleDetailClient() {
               </svg>
               Otvoriť v novom okne
             </a>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !isDeleting && setShowDeleteConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-900 mb-2">
+              Vymazať pravidlo?
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Naozaj chcete vymazať pravidlo <strong>{rule.name}</strong>?
+              Táto akcia je nevratná a vymaže všetky súvisiace pozorovania a alerty.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+              >
+                Zrušiť
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {isDeleting ? 'Mazanie...' : 'Vymazať'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -169,6 +169,12 @@ class ApiClient {
     });
   }
 
+  async deleteRule(id: string) {
+    return this.request<{ deleted: boolean }>(`/rules/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Alerts
   async getAlerts(workspaceId: string) {
     return this.request<any[]>(`/alerts?workspaceId=${workspaceId}`);
