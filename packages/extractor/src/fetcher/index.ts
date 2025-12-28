@@ -2,7 +2,7 @@
 export { fetchHttp } from './http';
 export { fetchHeadless, closeBrowser, takeElementScreenshot } from './headless';
 export type { ElementScreenshotOptions } from './headless';
-export { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
+export { fetchFlareSolverr, isFlareSolverrAvailable, destroySession, listSessions } from './flaresolverr';
 export { smartFetch } from './smart-fetch';
 export { getRandomUserAgent, USER_AGENTS } from './user-agents';
 export { detectBlock, blockTypeToErrorCode } from './block-detection';

@@ -77,7 +77,11 @@ export class RunProcessor extends WorkerHost {
         source: {
           include: {
             fetchProfile: true,
-            workspace: true,
+            workspace: {
+              include: {
+                owner: true,
+              },
+            },
           },
         },
         state: true,
@@ -191,6 +195,37 @@ export class RunProcessor extends WorkerHost {
         this.logger.log(
           `[Job ${job.id}] HTTP-to-headless fallback triggered: ${fetchResult.fallbackReason}`,
         );
+      }
+
+      // Auto-enforce 1-day interval for FlareSolverr/2captcha sites (cost limitation)
+      // Exception: test@example.com (admin account)
+      const EXEMPT_EMAILS = ['test@example.com'];
+      const ownerEmail = rule.source.workspace?.owner?.email;
+      const isExempt = ownerEmail && EXEMPT_EMAILS.includes(ownerEmail);
+
+      if (
+        fetchResult.modeUsed === 'flaresolverr' &&
+        !isExempt &&
+        !rule.captchaIntervalEnforced
+      ) {
+        const currentSchedule = rule.schedule as { intervalSec?: number; cron?: string } | null;
+        const currentInterval = currentSchedule?.intervalSec ?? 0;
+        const ONE_DAY_SEC = 86400;
+
+        if (currentInterval < ONE_DAY_SEC) {
+          // Save original schedule and enforce 1-day interval
+          await this.prisma.rule.update({
+            where: { id: ruleId },
+            data: {
+              captchaIntervalEnforced: true,
+              originalSchedule: rule.schedule as any,
+              schedule: { ...currentSchedule, intervalSec: ONE_DAY_SEC },
+            },
+          });
+          this.logger.warn(
+            `[Job ${job.id}] Rule ${ruleId}: CAPTCHA detected (2captcha cost), interval auto-changed from ${currentInterval}s to ${ONE_DAY_SEC}s (1 day)`,
+          );
+        }
       }
 
       if (!fetchResult.success) {

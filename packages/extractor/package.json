@@ -16,15 +16,17 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@sentinel/shared": "workspace:*",
+    "@xmldom/xmldom": "^0.8.10",
     "cheerio": "^1.0.0-rc.12",
+    "diff": "^8.0.2",
     "playwright-core": "^1.40.0",
     "undici": "^6.4.0",
-    "@sentinel/shared": "workspace:*",
-    "xpath": "^0.0.34",
-    "@xmldom/xmldom": "^0.8.10"
+    "xpath": "^0.0.34"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
+    "@types/diff": "^8.0.0",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",

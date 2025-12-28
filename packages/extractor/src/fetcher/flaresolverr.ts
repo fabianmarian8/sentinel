@@ -31,6 +31,17 @@ export interface FlareSolverrOptions extends FetchOptions {
    * Path to save screenshot file (if returnScreenshot is true)
    */
   screenshotPath?: string;
+
+  /**
+   * Use persistent session (remembers solved challenges)
+   * If true, uses domain-based session name automatically
+   */
+  useSession?: boolean;
+
+  /**
+   * Custom session name (overrides auto-generated domain-based name)
+   */
+  sessionName?: string;
 }
 
 export interface FlareSolverrResponse {
@@ -60,7 +71,63 @@ export interface FlareSolverrResponse {
 }
 
 const DEFAULT_FLARESOLVERR_URL = 'http://localhost:8191/v1';
-const DEFAULT_MAX_TIMEOUT = 60000;
+const DEFAULT_MAX_TIMEOUT = 120000; // Increased for complex challenges
+
+// Track active sessions to avoid creating duplicates
+const activeSessions = new Set<string>();
+
+/**
+ * Create or get session name from URL domain
+ */
+function getSessionName(url: string): string {
+  try {
+    const domain = new URL(url).hostname.replace(/\./g, '_');
+    return `sentinel_${domain}`;
+  } catch {
+    return 'sentinel_default';
+  }
+}
+
+/**
+ * Ensure FlareSolverr session exists for domain
+ */
+async function ensureSession(
+  sessionName: string,
+  flareSolverrUrl: string
+): Promise<boolean> {
+  // Skip if we already created this session in this process
+  if (activeSessions.has(sessionName)) {
+    return true;
+  }
+
+  try {
+    // Try to create session (will fail if exists, but that's ok)
+    const response = await fetch(flareSolverrUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cmd: 'sessions.create',
+        session: sessionName,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'ok' || data.message?.includes('already exists')) {
+      activeSessions.add(sessionName);
+      console.log(`[FlareSolverr] Session ready: ${sessionName}`);
+      return true;
+    }
+
+    console.log(`[FlareSolverr] Session creation response: ${data.message}`);
+    activeSessions.add(sessionName); // Mark as tried
+    return true;
+  } catch (err) {
+    console.error(`[FlareSolverr] Failed to create session: ${err}`);
+    return false;
+  }
+}
 
 /**
  * Fetch URL using FlareSolverr proxy to bypass Cloudflare protection
@@ -72,14 +139,28 @@ export async function fetchFlareSolverr(
   const maxTimeout = options.maxTimeout || DEFAULT_MAX_TIMEOUT;
   const startTime = Date.now();
 
-  console.log(`[FlareSolverr] Fetching ${options.url}`);
+  // Always use sessions for better challenge solving
+  const useSession = options.useSession !== false; // Default true
+  const sessionName = options.sessionName || getSessionName(options.url);
+
+  console.log(`[FlareSolverr] Fetching ${options.url}${useSession ? ` (session: ${sessionName})` : ''}`);
 
   try {
+    // Ensure session exists if using sessions
+    if (useSession) {
+      await ensureSession(sessionName, flareSolverrUrl);
+    }
+
     const requestBody: Record<string, unknown> = {
       cmd: 'request.get',
       url: options.url,
       maxTimeout: maxTimeout,
     };
+
+    // Add session if enabled
+    if (useSession) {
+      requestBody.session = sessionName;
+    }
 
     // Add optional headers
     if (options.headers) {
@@ -227,6 +308,53 @@ export async function isFlareSolverrAvailable(
     return data.msg === 'FlareSolverr is ready!';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Destroy a FlareSolverr session
+ */
+export async function destroySession(
+  sessionName: string,
+  flareSolverrUrl: string = DEFAULT_FLARESOLVERR_URL
+): Promise<boolean> {
+  try {
+    const response = await fetch(flareSolverrUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cmd: 'sessions.destroy',
+        session: sessionName,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const data = await response.json();
+    activeSessions.delete(sessionName);
+    return data.status === 'ok';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * List all active FlareSolverr sessions
+ */
+export async function listSessions(
+  flareSolverrUrl: string = DEFAULT_FLARESOLVERR_URL
+): Promise<string[]> {
+  try {
+    const response = await fetch(flareSolverrUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'sessions.list' }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const data = await response.json();
+    return data.sessions || [];
+  } catch {
+    return [];
   }
 }
 

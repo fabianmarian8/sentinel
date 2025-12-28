@@ -21,6 +21,8 @@ interface RuleCardProps {
       lastStable: any;
     } | null;
     observationCount: number;
+    captchaIntervalEnforced?: boolean;
+    originalSchedule?: { intervalSec?: number } | null;
   };
 }
 
@@ -112,6 +114,20 @@ export function RuleCard({ rule }: RuleCardProps) {
         {rule.lastErrorCode && (
           <div className="mt-3 p-2 bg-red-50 rounded text-sm text-red-700">
             Last error: {rule.lastErrorCode} ({formatTimeAgo(rule.lastErrorAt)})
+          </div>
+        )}
+
+        {rule.captchaIntervalEnforced && (
+          <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center gap-2">
+            <span>🔒</span>
+            <span>
+              Interval zmenený na 1 deň (CAPTCHA ochrana)
+              {rule.originalSchedule?.intervalSec && (
+                <span className="text-amber-600 ml-1">
+                  (pôvodne {Math.round(rule.originalSchedule.intervalSec / 60)} min)
+                </span>
+              )}
+            </span>
           </div>
         )}
 

@@ -170,6 +170,9 @@ model Rule {
   lastErrorAt   DateTime? @map("last_error_at")
   nextRunAt     DateTime? @map("next_run_at")
   createdAt     DateTime  @default(now()) @map("created_at")
+  // Captcha/2captcha cost limitation - auto-switch to 1 day interval
+  captchaIntervalEnforced Boolean   @default(false) @map("captcha_interval_enforced")
+  originalSchedule        Json?     @map("original_schedule") // original schedule before captcha enforcement
 
   source        Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   state         RuleState?

@@ -18,21 +18,25 @@ export function normalizeValue(
     return rawValue;
   }
 
-  switch (config.kind) {
+  // Support both 'kind' (shared types) and 'type' (API DTO) for compatibility
+  const normKind = (config as any).kind || (config as any).type;
+  const cfg = config as any; // Use any for flexible property access
+
+  switch (normKind) {
     case 'price':
-      return normalizePrice(rawValue, config);
+      return normalizePrice(rawValue, cfg);
 
     case 'availability':
-      return normalizeAvailability(rawValue, config);
+      return normalizeAvailability(rawValue, cfg);
 
     case 'text': {
       let text = rawValue;
 
-      if (config.collapseWhitespace) {
+      if (cfg.collapseWhitespace) {
         text = text.replace(/\s+/g, ' ').trim();
       }
 
-      const maxLength = config.maxSnippetLength ?? 500;
+      const maxLength = cfg.maxSnippetLength ?? 500;
       const snippet = text.length > maxLength ? text.slice(0, maxLength) : text;
 
       // Create hash for text comparison
@@ -48,14 +52,14 @@ export function normalizeValue(
       let numberStr = rawValue;
 
       // Remove thousand separators
-      if (config.thousandSeparators) {
-        for (const sep of config.thousandSeparators) {
+      if (cfg.thousandSeparators) {
+        for (const sep of cfg.thousandSeparators) {
           numberStr = numberStr.replace(new RegExp(`\\${sep}`, 'g'), '');
         }
       }
 
       // Replace decimal separator with dot
-      if (config.decimalSeparator === ',') {
+      if (cfg.decimalSeparator === ',') {
         numberStr = numberStr.replace(',', '.');
       }
 
@@ -66,8 +70,8 @@ export function normalizeValue(
       }
 
       // Apply scaling if needed
-      if (config.scale) {
-        return value * config.scale;
+      if (cfg.scale) {
+        return value * cfg.scale;
       }
 
       return value;

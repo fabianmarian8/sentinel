@@ -132,14 +132,14 @@ export async function smartFetch(
     const flareSolverrAvailable = await isFlareSolverrAvailable(flareSolverrUrl);
 
     if (flareSolverrAvailable) {
-      // If screenshotSelector is set, we need element screenshot (not FlareSolverr full-page)
-      // FlareSolverr will fetch HTML, then headless browser will take element screenshot
+      // FlareSolverr gets HTML and cf_clearance cookies
+      // Then headless browser uses cookies for element screenshot (with cookie banner dismissal)
       const needsElementScreenshot = options.screenshotOnChange && options.screenshotSelector && options.screenshotPath;
 
       const flareSolverrResult = await fetchFlareSolverr({
         ...options,
         flareSolverrUrl,
-        // Only use FlareSolverr screenshot if we don't need element screenshot
+        // Only use FlareSolverr screenshot if we don't need element-specific screenshot
         returnScreenshot: options.screenshotOnChange && !needsElementScreenshot,
         screenshotPath: needsElementScreenshot ? undefined : options.screenshotPath,
       });
@@ -147,18 +147,19 @@ export async function smartFetch(
       if (flareSolverrResult.success) {
         console.log(`[SmartFetch] FlareSolverr succeeded for ${options.url}`);
 
-        // If we need element screenshot, use headless browser for it
-        let finalScreenshotPath = flareSolverrResult.screenshotPath;
+        let finalScreenshotPath = flareSolverrResult.screenshotPath || null;
+
+        // If we need element screenshot, use headless with FlareSolverr's cf_clearance cookies
         if (needsElementScreenshot && options.screenshotPath && options.screenshotSelector) {
-          console.log(`[SmartFetch] Taking element screenshot with headless browser...`);
+          console.log(`[SmartFetch] Taking element screenshot with cf_clearance cookies...`);
           const screenshotResult = await takeElementScreenshot({
             url: options.url,
             selector: options.screenshotSelector,
             outputPath: options.screenshotPath,
             padding: 200, // ~5cm context around element
-            dismissCookies: true,
-            userAgent: options.userAgent,
-            // Pass cookies from FlareSolverr session
+            dismissCookies: true, // Will click cookie banner dismiss button
+            userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
+            // Pass cf_clearance and other cookies from FlareSolverr
             cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
           });
 
@@ -166,7 +167,19 @@ export async function smartFetch(
             finalScreenshotPath = screenshotResult.screenshotPath || null;
             console.log(`[SmartFetch] Element screenshot captured: ${finalScreenshotPath}`);
           } else {
-            console.log(`[SmartFetch] Element screenshot failed: ${screenshotResult.error}`);
+            console.log(`[SmartFetch] Element screenshot failed: ${screenshotResult.error}, using FlareSolverr full-page`);
+            // Fallback: request full-page screenshot from FlareSolverr
+            if (!finalScreenshotPath) {
+              const retryResult = await fetchFlareSolverr({
+                ...options,
+                flareSolverrUrl,
+                returnScreenshot: true,
+                screenshotPath: options.screenshotPath,
+              });
+              if (retryResult.success) {
+                finalScreenshotPath = retryResult.screenshotPath || null;
+              }
+            }
           }
         }
 

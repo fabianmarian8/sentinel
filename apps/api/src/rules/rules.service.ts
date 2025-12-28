@@ -162,6 +162,8 @@ export class RulesService {
       createdAt: rule.createdAt,
       observationCount: rule._count.observations,
       alertPolicy: rule.alertPolicy,
+      captchaIntervalEnforced: rule.captchaIntervalEnforced,
+      originalSchedule: rule.originalSchedule,
       currentState: rule.state
         ? {
             lastStable: rule.state.lastStable,
@@ -363,6 +365,8 @@ export class RulesService {
       lastErrorAt: rule.lastErrorAt,
       nextRunAt: rule.nextRunAt,
       createdAt: rule.createdAt,
+      captchaIntervalEnforced: rule.captchaIntervalEnforced,
+      originalSchedule: rule.originalSchedule,
       currentState: rule.state
         ? {
             lastStable: rule.state.lastStable,

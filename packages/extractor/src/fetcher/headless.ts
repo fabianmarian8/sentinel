@@ -29,7 +29,14 @@ async function getBrowser(): Promise<Browser> {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
+        '--disable-gpu',
+        // Stealth arguments to avoid bot detection
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-web-security',
+        '--ignore-certificate-errors',
+        '--window-size=1920,1080',
+        '--start-maximized'
       ]
     });
   }

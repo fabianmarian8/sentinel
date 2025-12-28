@@ -61,6 +61,12 @@ async function fetchUnreadAlertsCount(): Promise<number> {
 
     return response?.count || 0;
   } catch (error) {
+    // Session expired is expected when token is invalid - handle gracefully
+    if (error instanceof Error && error.message === 'Session expired') {
+      // Token was cleared by apiRequest, just return 0
+      return 0;
+    }
+    // Only log unexpected errors
     console.error('Failed to fetch alerts count:', error);
     return 0;
   }
