@@ -1,6 +1,6 @@
 // Smart fetcher with HTTP-first, FlareSolverr, and headless fallback
 import { fetchHttp } from './http';
-import { fetchHeadless, type HeadlessFetchOptions } from './headless';
+import { fetchHeadless, takeElementScreenshot, type HeadlessFetchOptions } from './headless';
 import { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 import { detectBlock } from './block-detection';
 import { isJavaScriptRequired } from './spa-detection';
@@ -132,18 +132,47 @@ export async function smartFetch(
     const flareSolverrAvailable = await isFlareSolverrAvailable(flareSolverrUrl);
 
     if (flareSolverrAvailable) {
+      // If screenshotSelector is set, we need element screenshot (not FlareSolverr full-page)
+      // FlareSolverr will fetch HTML, then headless browser will take element screenshot
+      const needsElementScreenshot = options.screenshotOnChange && options.screenshotSelector && options.screenshotPath;
+
       const flareSolverrResult = await fetchFlareSolverr({
         ...options,
         flareSolverrUrl,
-        // Pass screenshot options to FlareSolverr
-        returnScreenshot: options.screenshotOnChange,
-        screenshotPath: options.screenshotPath,
+        // Only use FlareSolverr screenshot if we don't need element screenshot
+        returnScreenshot: options.screenshotOnChange && !needsElementScreenshot,
+        screenshotPath: needsElementScreenshot ? undefined : options.screenshotPath,
       });
 
       if (flareSolverrResult.success) {
         console.log(`[SmartFetch] FlareSolverr succeeded for ${options.url}`);
+
+        // If we need element screenshot, use headless browser for it
+        let finalScreenshotPath = flareSolverrResult.screenshotPath;
+        if (needsElementScreenshot && options.screenshotPath && options.screenshotSelector) {
+          console.log(`[SmartFetch] Taking element screenshot with headless browser...`);
+          const screenshotResult = await takeElementScreenshot({
+            url: options.url,
+            selector: options.screenshotSelector,
+            outputPath: options.screenshotPath,
+            padding: 200, // ~5cm context around element
+            dismissCookies: true,
+            userAgent: options.userAgent,
+            // Pass cookies from FlareSolverr session
+            cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
+          });
+
+          if (screenshotResult.success) {
+            finalScreenshotPath = screenshotResult.screenshotPath || null;
+            console.log(`[SmartFetch] Element screenshot captured: ${finalScreenshotPath}`);
+          } else {
+            console.log(`[SmartFetch] Element screenshot failed: ${screenshotResult.error}`);
+          }
+        }
+
         return {
           ...flareSolverrResult,
+          screenshotPath: finalScreenshotPath,
           modeUsed: 'flaresolverr',
           fallbackTriggered: true,
           fallbackReason,

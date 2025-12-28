@@ -1,6 +1,7 @@
 // Fetcher exports
 export { fetchHttp } from './http';
-export { fetchHeadless, closeBrowser } from './headless';
+export { fetchHeadless, closeBrowser, takeElementScreenshot } from './headless';
+export type { ElementScreenshotOptions } from './headless';
 export { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 export { smartFetch } from './smart-fetch';
 export { getRandomUserAgent, USER_AGENTS } from './user-agents';
