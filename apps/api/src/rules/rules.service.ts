@@ -167,6 +167,7 @@ export class RulesService {
             lastStable: rule.state.lastStable,
             candidate: rule.state.candidate,
             candidateCount: rule.state.candidateCount,
+            updatedAt: rule.state.updatedAt,
           }
         : null,
     }));
@@ -214,6 +215,7 @@ export class RulesService {
             lastStable: rule.state.lastStable,
             candidate: rule.state.candidate,
             candidateCount: rule.state.candidateCount,
+            updatedAt: rule.state.updatedAt,
           }
         : null,
     }));
@@ -354,6 +356,7 @@ export class RulesService {
       schedule: rule.schedule,
       alertPolicy: rule.alertPolicy,
       enabled: rule.enabled,
+      screenshotOnChange: rule.screenshotOnChange,
       healthScore: rule.healthScore,
       lastErrorCode: rule.lastErrorCode,
       lastErrorAt: rule.lastErrorAt,
@@ -407,6 +410,8 @@ export class RulesService {
     if (dto.alertPolicy !== undefined)
       updateData.alertPolicy = dto.alertPolicy;
     if (dto.enabled !== undefined) updateData.enabled = dto.enabled;
+    if (dto.screenshotOnChange !== undefined)
+      updateData.screenshotOnChange = dto.screenshotOnChange;
 
     // If schedule is being updated, recalculate nextRunAt
     if (dto.schedule !== undefined) {
@@ -453,6 +458,7 @@ export class RulesService {
       schedule: rule.schedule,
       alertPolicy: rule.alertPolicy,
       enabled: rule.enabled,
+      screenshotOnChange: rule.screenshotOnChange,
       healthScore: rule.healthScore,
       lastErrorCode: rule.lastErrorCode,
       lastErrorAt: rule.lastErrorAt,

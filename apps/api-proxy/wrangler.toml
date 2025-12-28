@@ -1,0 +1,6 @@
+name = "sentinel-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+BACKEND_URL = "http://135.181.99.192:3000"

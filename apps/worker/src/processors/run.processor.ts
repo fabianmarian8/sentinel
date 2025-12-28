@@ -14,7 +14,7 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { smartFetch, extract, processAntiFlap } from '@sentinel/extractor';
-import { getStorageClient } from '@sentinel/storage';
+import { getStorageClientAuto } from '@sentinel/storage';
 import type {
   ExtractionConfig,
   NormalizationConfig,
@@ -135,8 +135,8 @@ export class RunProcessor extends WorkerHost {
       },
     });
 
-    // Prepare for screenshot if enabled
-    const screenshotOnChange = rule.source.fetchProfile?.screenshotOnChange ?? false;
+    // Prepare for screenshot if enabled (check rule-level setting first, then fetchProfile)
+    const screenshotOnChange = rule.screenshotOnChange ?? rule.source.fetchProfile?.screenshotOnChange ?? false;
     let tempDir: string | null = null;
     let screenshotPath: string | null = null;
 
@@ -301,10 +301,10 @@ export class RunProcessor extends WorkerHost {
           `[Job ${job.id}] Change confirmed for rule ${ruleId}, triggering alerts`,
         );
 
-        // Step 13a: Upload screenshot to S3 if captured
+        // Step 13a: Upload screenshot to storage if captured
         if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath) {
           try {
-            const storageClient = getStorageClient();
+            const storageClient = getStorageClientAuto();
             if (storageClient) {
               const screenshotBuffer = await readFile(screenshotPath);
               const uploadResult = await storageClient.uploadScreenshot(
@@ -314,7 +314,7 @@ export class RunProcessor extends WorkerHost {
               );
               uploadedScreenshotPath = uploadResult.url;
               this.logger.log(
-                `[Job ${job.id}] Screenshot uploaded to S3: ${uploadedScreenshotPath}`,
+                `[Job ${job.id}] Screenshot uploaded: ${uploadedScreenshotPath}`,
               );
             } else {
               this.logger.debug(

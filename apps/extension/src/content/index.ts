@@ -490,6 +490,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ success: true });
       break;
 
+    case 'clearSelection':
+      // Remove highlight and clear any selection state
+      removeHighlight();
+      sendResponse({ success: true });
+      break;
+
     case 'extractValue':
       // Extract current value of an element
       if (message.selector) {

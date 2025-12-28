@@ -47,40 +47,54 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'healthy' | 'warning' | 'critical'>('all');
-
-  // Use user's workspace or fallback
-  const workspaceId = 'demo-workspace'; // TODO: Get from user's workspaces
-
-  // Show loading while auth is checking
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!authLoading && user) {
+      loadWorkspaceAndData();
+    }
+  }, [authLoading, user]);
 
-  const loadData = async () => {
+  const loadWorkspaceAndData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Try to load from API, fall back to empty state
+      // First, get user's workspaces
+      let workspaces = await api.getWorkspaces();
+
+      // If no workspace exists, create one
+      if (workspaces.length === 0) {
+        const newWorkspace = await api.createWorkspace({ name: 'My Workspace', type: 'ecommerce' });
+        workspaces = [newWorkspace];
+      }
+
+      const wsId = workspaces[0].id;
+      setWorkspaceId(wsId);
+
+      // Load rules for this workspace
       try {
-        const [rulesData, healthData] = await Promise.all([
-          api.getRules(workspaceId),
-          api.getHealthSummary(workspaceId),
-        ]);
+        const rulesData = await api.getRules(wsId);
         setRules(rulesData);
-        setHealthSummary(healthData);
+
+        // Calculate health summary from rules
+        const total = rulesData.length;
+        const healthy = rulesData.filter((r: Rule) => r.healthScore >= 80).length;
+        const warning = rulesData.filter((r: Rule) => r.healthScore >= 50 && r.healthScore < 80).length;
+        const critical = rulesData.filter((r: Rule) => r.healthScore < 50).length;
+        const avgScore = total > 0
+          ? Math.round(rulesData.reduce((sum: number, r: Rule) => sum + r.healthScore, 0) / total)
+          : 0;
+
+        setHealthSummary({
+          totalRules: total,
+          healthyRules: healthy,
+          warningRules: warning,
+          criticalRules: critical,
+          averageScore: avgScore,
+        });
       } catch (apiError) {
-        // If API fails, show empty state with message
         console.error('API error:', apiError);
-        setError('Could not connect to API. Showing empty dashboard.');
         setRules([]);
         setHealthSummary({
           totalRules: 0,
@@ -90,6 +104,9 @@ export default function DashboardPage() {
           averageScore: 0,
         });
       }
+    } catch (err) {
+      console.error('Failed to load workspace:', err);
+      setError('Could not connect to API. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -102,6 +119,15 @@ export default function DashboardPage() {
     if (filter === 'critical') return rule.healthScore < 50;
     return true;
   });
+
+  // Show loading while auth is checking
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -117,12 +143,12 @@ export default function DashboardPage() {
               <span className="ml-4 text-gray-900 font-medium">Dashboard</span>
             </div>
             <div className="flex items-center space-x-4">
-              <Link
-                href="/dashboard/rules/new"
+              <button
+                onClick={() => alert('Use the Sentinel browser extension to create new rules.\n\n1. Install the extension\n2. Navigate to any webpage\n3. Click the Sentinel icon\n4. Select an element to monitor')}
                 className="bg-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-md text-sm font-medium"
               >
                 + New Rule
-              </Link>
+              </button>
               <Link
                 href="/dashboard/settings"
                 className="text-gray-500 hover:text-gray-700"
@@ -163,7 +189,7 @@ export default function DashboardPage() {
           <div className="mb-6 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg flex items-center justify-between">
             <span>{error}</span>
             <button
-              onClick={loadData}
+              onClick={loadWorkspaceAndData}
               className="text-yellow-600 hover:text-yellow-800 font-medium"
             >
               Retry
@@ -271,12 +297,12 @@ export default function DashboardPage() {
                 : 'No rules match the selected filter'}
             </p>
             {rules.length === 0 && (
-              <Link
-                href="/dashboard/rules/new"
+              <button
+                onClick={() => alert('Use the Sentinel browser extension to create new rules.\n\n1. Install the extension\n2. Navigate to any webpage\n3. Click the Sentinel icon\n4. Select an element to monitor')}
                 className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
               >
                 + Create First Rule
-              </Link>
+              </button>
             )}
           </div>
         )}

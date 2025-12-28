@@ -84,6 +84,7 @@ export class ConditionEvaluatorService {
     change: ChangeDetectionResult,
   ): boolean {
     switch (condition.type) {
+      // Legacy PRD condition types
       case 'price_below':
         return this.evaluatePriceBelow(condition, value, ruleType);
 
@@ -113,12 +114,138 @@ export class ConditionEvaluatorService {
       case 'number_above':
         return this.evaluateNumberAbove(condition, value, ruleType);
 
+      // API condition types (from alert-policy.dto.ts)
+      case 'value_changed':
+        return this.evaluateValueChanged(change);
+
+      case 'value_increased':
+        return this.evaluateValueIncreased(value, prevValue, ruleType);
+
+      case 'value_decreased':
+        return this.evaluateValueDecreased(value, prevValue, ruleType);
+
+      case 'value_above':
+        return this.evaluateValueAbove(condition, value, ruleType);
+
+      case 'value_below':
+        return this.evaluateValueBelow(condition, value, ruleType);
+
+      case 'value_disappeared':
+        return change.changeKind === 'value_disappeared';
+
+      case 'value_appeared':
+        return change.changeKind === 'new_value';
+
       default:
         this.logger.warn(
           `Unknown condition type: ${(condition as any).type}`,
         );
         return false;
     }
+  }
+
+  /**
+   * Evaluate value_changed condition (generic - works for all rule types)
+   * Triggers when any value change is detected
+   */
+  private evaluateValueChanged(change: ChangeDetectionResult): boolean {
+    // Trigger on any change except first observation
+    return change.changeKind !== null && change.changeKind !== ('new_value' as any);
+  }
+
+  /**
+   * Evaluate value_increased condition (for price/number types)
+   * Triggers when value increased
+   */
+  private evaluateValueIncreased(
+    value: any,
+    prevValue: any,
+    ruleType: RuleType,
+  ): boolean {
+    if (!prevValue) return false;
+
+    const currentNum = this.extractNumericValue(value, ruleType);
+    const prevNum = this.extractNumericValue(prevValue, ruleType);
+
+    if (currentNum === null || prevNum === null) return false;
+
+    return currentNum > prevNum;
+  }
+
+  /**
+   * Evaluate value_decreased condition (for price/number types)
+   * Triggers when value decreased
+   */
+  private evaluateValueDecreased(
+    value: any,
+    prevValue: any,
+    ruleType: RuleType,
+  ): boolean {
+    if (!prevValue) return false;
+
+    const currentNum = this.extractNumericValue(value, ruleType);
+    const prevNum = this.extractNumericValue(prevValue, ruleType);
+
+    if (currentNum === null || prevNum === null) return false;
+
+    return currentNum < prevNum;
+  }
+
+  /**
+   * Evaluate value_above condition (generic threshold)
+   */
+  private evaluateValueAbove(
+    condition: AlertCondition,
+    value: any,
+    ruleType: RuleType,
+  ): boolean {
+    const num = this.extractNumericValue(value, ruleType);
+    const threshold = condition.threshold ?? Number(condition.value);
+
+    if (num === null || isNaN(threshold)) return false;
+
+    return num > threshold;
+  }
+
+  /**
+   * Evaluate value_below condition (generic threshold)
+   */
+  private evaluateValueBelow(
+    condition: AlertCondition,
+    value: any,
+    ruleType: RuleType,
+  ): boolean {
+    const num = this.extractNumericValue(value, ruleType);
+    const threshold = condition.threshold ?? Number(condition.value);
+
+    if (num === null || isNaN(threshold)) return false;
+
+    return num < threshold;
+  }
+
+  /**
+   * Extract numeric value from normalized value based on rule type
+   */
+  private extractNumericValue(value: any, ruleType: RuleType): number | null {
+    if (value === null || value === undefined) return null;
+
+    if (ruleType === 'price') {
+      const price = (value as NormalizedPrice)?.value;
+      return typeof price === 'number' ? price : null;
+    }
+
+    if (ruleType === 'number') {
+      const num = typeof value === 'number' ? value : parseFloat(value);
+      return isNaN(num) ? null : num;
+    }
+
+    // For text type, try to parse as number
+    if (typeof value === 'string') {
+      const num = parseFloat(value.replace(/[^0-9.-]/g, ''));
+      return isNaN(num) ? null : num;
+    }
+
+    return typeof value === 'number' ? value : null;
   }
 
   /**

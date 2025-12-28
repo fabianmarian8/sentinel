@@ -17,7 +17,7 @@ export interface RunJobPayload {
   requestedAt: string;
 
   /** Force specific execution mode (overrides rule settings) */
-  forceMode?: 'http' | 'headless' | null;
+  forceMode?: 'http' | 'headless' | 'flaresolverr' | null;
 
   /** Enable debug logging for this job */
   debug?: boolean;

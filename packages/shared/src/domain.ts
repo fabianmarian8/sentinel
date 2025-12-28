@@ -3,7 +3,7 @@
 export type UUID = string;
 export type WorkspaceType = "ecommerce" | "competitor" | "procurement";
 export type RuleType = "price" | "availability" | "text" | "number" | "json_field";
-export type FetchMode = "http" | "headless";
+export type FetchMode = "http" | "headless" | "flaresolverr";
 
 export type ErrorCode =
   // Fetch errors
@@ -101,15 +101,21 @@ export type NormalizationConfig =
 export type Severity = "info" | "warning" | "critical";
 
 export type AlertConditionType =
+  // Legacy PRD condition types
   | "price_below" | "price_above" | "price_drop_percent"
   | "availability_is" | "text_changed" | "number_changed"
-  | "number_below" | "number_above";
+  | "number_below" | "number_above"
+  // API condition types (generic)
+  | "value_changed" | "value_increased" | "value_decreased"
+  | "value_above" | "value_below"
+  | "value_disappeared" | "value_appeared";
 
 export interface AlertCondition {
   id: string;
   type: AlertConditionType;
   value: number | string | boolean;
   severity: Severity;
+  threshold?: number;
 }
 
 export interface AlertPolicy {

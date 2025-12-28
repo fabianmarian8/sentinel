@@ -61,3 +61,4 @@ packages/shared/prisma/migrations/
 
 # S3 local testing
 .s3-local/
+apps/web/.vercel/

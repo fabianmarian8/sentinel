@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import api, { NotificationChannel, ChannelType, CreateNotificationChannelDto } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const CHANNEL_TYPES: { value: ChannelType; label: string; icon: string }[] = [
   { value: 'email', label: 'Email', icon: '📧' },
@@ -12,28 +13,39 @@ const CHANNEL_TYPES: { value: ChannelType; label: string; icon: string }[] = [
 ];
 
 export default function SettingsPage() {
+  const { user, isLoading: authLoading } = useAuth();
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
-
-  // For demo, use a fixed workspace ID - in production this would come from auth context
-  const workspaceId = 'demo-workspace';
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadChannels();
-  }, []);
+    if (!authLoading && user) {
+      loadWorkspaceAndChannels();
+    }
+  }, [authLoading, user]);
 
-  const loadChannels = async () => {
+  const loadWorkspaceAndChannels = async () => {
     try {
       setLoading(true);
-      const data = await api.getNotificationChannels(workspaceId);
+      // Get user's workspace
+      let workspaces = await api.getWorkspaces();
+      if (workspaces.length === 0) {
+        const newWorkspace = await api.createWorkspace({ name: 'My Workspace', type: 'ecommerce' });
+        workspaces = [newWorkspace];
+      }
+      const wsId = workspaces[0].id;
+      setWorkspaceId(wsId);
+
+      // Load channels
+      const data = await api.getNotificationChannels(wsId);
       setChannels(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load channels');
+      setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -83,6 +95,15 @@ export default function SettingsPage() {
       throw err;
     }
   };
+
+  // Show loading while auth is checking
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -211,7 +232,7 @@ export default function SettingsPage() {
       </main>
 
       {/* Add Channel Modal */}
-      {showAddModal && (
+      {showAddModal && workspaceId && (
         <AddChannelModal
           workspaceId={workspaceId}
           onAdd={handleAddChannel}

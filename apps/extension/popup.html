@@ -42,24 +42,31 @@
           <p id="page-url" class="text-small text-muted"></p>
         </div>
 
-        <div class="action-buttons">
-          <button id="start-picker" class="btn btn-primary btn-large">
-            <span>🎯</span> Pick Element
+        <!-- Collapsible Pick Element Section -->
+        <div class="accordion" id="picker-accordion">
+          <button type="button" class="accordion-header" id="picker-accordion-toggle">
+            <span>🎯 Pick Element</span>
+            <span class="accordion-icon">▼</span>
           </button>
-        </div>
+          <div class="accordion-content" id="picker-accordion-content">
+            <div class="action-buttons">
+              <button id="start-picker" class="btn btn-primary btn-large">
+                <span>🎯</span> Pick Element
+              </button>
+            </div>
 
-        <div id="selection-preview" class="selection-preview hidden">
-          <h4>Selected Element</h4>
-          <div class="preview-selector">
-            <code id="preview-selector-text"></code>
-          </div>
-          <div class="preview-value">
-            <span class="label">Current Value:</span>
-            <span id="preview-value-text"></span>
-          </div>
-        </div>
+            <div id="selection-preview" class="selection-preview hidden">
+              <h4>Selected Element</h4>
+              <div class="preview-selector">
+                <code id="preview-selector-text"></code>
+              </div>
+              <div class="preview-value">
+                <span class="label">Current Value:</span>
+                <span id="preview-value-text"></span>
+              </div>
+            </div>
 
-        <form id="create-rule-form" class="hidden">
+            <form id="create-rule-form" class="hidden">
           <h4>Create Monitoring Rule</h4>
           <input type="text" id="rule-name" placeholder="Rule name" required>
           <select id="rule-type" required>
@@ -84,7 +91,9 @@
             </select>
           </div>
           <button type="submit" class="btn btn-success">Create Rule</button>
-        </form>
+            </form>
+          </div>
+        </div>
 
         <!-- My Rules Section -->
         <div class="my-rules-section">
@@ -146,7 +155,7 @@
     </main>
 
     <footer class="footer">
-      <a href="https://sentinel.taxinearme.sk/api/docs" target="_blank">Open API Docs</a>
+      <a href="https://sentinel-app.pages.dev/dashboard" target="_blank">Otvoriť Dashboard</a>
     </footer>
   </div>
   <script src="popup.js"></script>

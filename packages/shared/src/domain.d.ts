@@ -1,7 +1,7 @@
 export type UUID = string;
 export type WorkspaceType = "ecommerce" | "competitor" | "procurement";
 export type RuleType = "price" | "availability" | "text" | "number" | "json_field";
-export type FetchMode = "http" | "headless";
+export type FetchMode = "http" | "headless" | "flaresolverr";
 export type ErrorCode = "FETCH_TIMEOUT" | "FETCH_DNS" | "FETCH_CONNECTION" | "FETCH_HTTP_4XX" | "FETCH_HTTP_5XX" | "BLOCK_CAPTCHA_SUSPECTED" | "BLOCK_CLOUDFLARE_SUSPECTED" | "BLOCK_FORBIDDEN_403" | "BLOCK_RATE_LIMIT_429" | "EXTRACT_SELECTOR_NOT_FOUND" | "EXTRACT_EMPTY_VALUE" | "EXTRACT_PARSE_ERROR" | "EXTRACT_UNSTABLE" | "SYSTEM_WORKER_CRASH" | "SYSTEM_QUEUE_DELAY";
 export type AttributeTarget = "text" | "html" | "value" | `attr:${string}`;
 export type PostprocessOp = {

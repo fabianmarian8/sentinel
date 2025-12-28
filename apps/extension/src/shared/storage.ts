@@ -82,6 +82,12 @@ export async function setStorageData(data: Partial<StorageData>): Promise<void> 
   });
 }
 
+export async function removeStorageKeys(keys: (keyof StorageData)[]): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(keys, resolve);
+  });
+}
+
 export async function getApiUrl(): Promise<string> {
   const data = await getStorageData();
   return data.apiBaseUrl || DEFAULT_API_URL;

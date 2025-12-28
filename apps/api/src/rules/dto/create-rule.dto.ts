@@ -88,4 +88,13 @@ export class CreateRuleDto {
   @IsBoolean()
   @IsOptional()
   enabled?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Capture screenshot when value changes',
+    example: false,
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  screenshotOnChange?: boolean;
 }

@@ -84,6 +84,35 @@ export class AlertGeneratorService {
       return `Number Alert: ${rule.name} - Above Threshold`;
     }
 
+    // API condition types
+    if (conditionTypes.includes('value_changed')) {
+      return `Value Changed: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_increased')) {
+      return `Value Increased: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_decreased')) {
+      return `Value Decreased: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_above')) {
+      return `Value Above Threshold: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_below')) {
+      return `Value Below Threshold: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_disappeared')) {
+      return `Value Disappeared: ${rule.name}`;
+    }
+
+    if (conditionTypes.includes('value_appeared')) {
+      return `New Value Detected: ${rule.name}`;
+    }
+
     // Fallback
     return `Change Detected: ${rule.name}`;
   }
@@ -185,33 +214,52 @@ export class AlertGeneratorService {
    */
   private formatValue(value: any, ruleType: RuleType): string {
     if (value === null || value === undefined) {
-      return 'null';
+      return 'N/A';
     }
 
     switch (ruleType) {
       case 'price': {
         const price = value as NormalizedPrice;
-        return `${price.value} ${price.currency}`;
+        if (price && typeof price.value === 'number' && price.currency) {
+          return `${price.value.toFixed(2)} ${price.currency}`;
+        }
+        if (price && typeof price.value === 'number') {
+          return `${price.value.toFixed(2)}`;
+        }
+        // Fallback for unexpected format
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
       }
 
       case 'availability': {
         const availability = value as NormalizedAvailability;
-        if (availability.leadTimeDays) {
-          return `${availability.status} (${availability.leadTimeDays} days)`;
+        if (availability && availability.status) {
+          if (availability.leadTimeDays) {
+            return `${availability.status} (${availability.leadTimeDays} days)`;
+          }
+          return availability.status;
         }
-        return availability.status;
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
       }
 
       case 'text': {
-        return `"${value.snippet || value}"`;
+        if (typeof value === 'string') {
+          return `"${value.substring(0, 100)}${value.length > 100 ? '...' : ''}"`;
+        }
+        if (value && value.snippet) {
+          return `"${value.snippet}"`;
+        }
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
       }
 
       case 'number': {
+        if (typeof value === 'number') {
+          return String(value);
+        }
         return String(value);
       }
 
       default:
-        return JSON.stringify(value);
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
     }
   }
 
@@ -244,8 +292,30 @@ export class AlertGeneratorService {
       case 'number_above':
         return `Number above ${condition.value}`;
 
+      // API condition types
+      case 'value_changed':
+        return 'Value changed';
+
+      case 'value_increased':
+        return 'Value increased';
+
+      case 'value_decreased':
+        return 'Value decreased';
+
+      case 'value_above':
+        return `Value above ${condition.threshold ?? condition.value}`;
+
+      case 'value_below':
+        return `Value below ${condition.threshold ?? condition.value}`;
+
+      case 'value_disappeared':
+        return 'Value disappeared';
+
+      case 'value_appeared':
+        return 'New value appeared';
+
       default:
-        return `Unknown condition: ${condition.type}`;
+        return `Condition: ${condition.type}`;
     }
   }
 }

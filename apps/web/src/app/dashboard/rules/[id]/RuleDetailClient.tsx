@@ -53,7 +53,7 @@ interface RuleDetail {
   }>;
 }
 
-export default function RuleDetailPage() {
+export default function RuleDetailClient() {
   const params = useParams();
   const router = useRouter();
   const [rule, setRule] = useState<RuleDetail | null>(null);
@@ -79,6 +79,11 @@ export default function RuleDetailPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return 'N/A';
+    return new Date(dateStr).toLocaleString();
   };
 
   const formatTimeAgo = (dateStr: string | null) => {
@@ -140,7 +145,7 @@ export default function RuleDetailPage() {
       await api.updateRule(rule.id, { screenshotOnChange: !rule.screenshotOnChange });
       setRule((prev) => prev ? { ...prev, screenshotOnChange: !prev.screenshotOnChange } : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update screenshots setting');
+      setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť nastavenie screenshotov');
     }
   };
 
@@ -317,8 +322,8 @@ export default function RuleDetailPage() {
               <div className="pt-3 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <div>
-                    <dt className="text-gray-500">Screenshots</dt>
-                    <dd className="text-xs text-gray-400 mt-0.5">Capture on change</dd>
+                    <dt className="text-gray-500">Snímky obrazovky</dt>
+                    <dd className="text-xs text-gray-400 mt-0.5">Zachytiť pri zmene</dd>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input

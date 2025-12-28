@@ -13,6 +13,7 @@ import {
   SelectedElement,
   getStorageData,
   setStorageData,
+  removeStorageKeys,
   apiRequest,
   clearLegacyCredentials,
 } from '../shared/storage';
@@ -47,9 +48,9 @@ interface Rule {
   };
   observationCount?: number;
   currentState?: {
-    value: any;
-    lastChange: string;
-  };
+    lastStable: any;
+    updatedAt?: string;
+  } | null;
   nextRunAt?: string;
   alertPolicy?: AlertPolicy;
 }
@@ -82,6 +83,10 @@ const startPickerBtn = document.getElementById('start-picker') as HTMLButtonElem
 const selectionPreview = document.getElementById('selection-preview') as HTMLDivElement;
 const previewSelectorText = document.getElementById('preview-selector-text') as HTMLElement;
 const previewValueText = document.getElementById('preview-value-text') as HTMLSpanElement;
+
+// Accordion elements
+const pickerAccordion = document.getElementById('picker-accordion') as HTMLDivElement;
+const pickerAccordionToggle = document.getElementById('picker-accordion-toggle') as HTMLButtonElement;
 
 const createRuleForm = document.getElementById('create-rule-form') as HTMLFormElement;
 const ruleNameInput = document.getElementById('rule-name') as HTMLInputElement;
@@ -202,11 +207,15 @@ async function login(email: string, password: string): Promise<void> {
   });
 
   currentUser = response.user;
+
+  // Refresh alert badge after login
+  chrome.runtime.sendMessage({ action: 'refreshAlertBadge' }).catch(() => {});
+
   await initPickerView();
 }
 
 async function logout(): Promise<void> {
-  await setStorageData({ authToken: undefined, user: undefined, pendingElement: undefined, savedEmail: undefined });
+  await removeStorageKeys(['authToken', 'user', 'pendingElement', 'savedEmail']);
   currentUser = null;
   isRegisterMode = false;
   updateAuthUI();
@@ -317,9 +326,9 @@ function displayRules(): void {
       </a>
       <div class="rule-details">
         <span class="rule-type badge">${rule.ruleType}</span>
-        ${rule.currentState ? `
-          <span class="rule-value">Hodnota: <strong>${escapeHtml(String(rule.currentState.value))}</strong></span>
-          <span class="rule-time text-muted">${formatTime(rule.currentState.lastChange)}</span>
+        ${rule.currentState?.lastStable ? `
+          <span class="rule-value">Hodnota: <strong>${escapeHtml(formatValue(rule.currentState.lastStable, rule.ruleType))}</strong></span>
+          ${rule.currentState.updatedAt ? `<span class="rule-time text-muted">${formatTime(rule.currentState.updatedAt)}</span>` : ''}
         ` : `<span class="rule-value text-muted">${rule.nextRunAt ? `Ďalšie načítanie: ${formatTime(rule.nextRunAt)}` : 'Čaká na prvé načítanie...'}</span>`}
       </div>
       <div class="rule-status">
@@ -375,6 +384,37 @@ function formatTime(isoString: string): string {
   if (diffMins < 60) return `pred ${diffMins} min`;
   if (diffHours < 24) return `pred ${diffHours} hod`;
   return `pred ${diffDays} dňami`;
+}
+
+function formatValue(value: any, ruleType: string): string {
+  if (value === null || value === undefined) return 'Žiadne dáta';
+
+  // Handle object values (structured data from worker)
+  if (typeof value === 'object') {
+    // Price type: { amount: 123, currency: "€" }
+    if ('amount' in value) {
+      const currency = value.currency || '';
+      return `${currency}${value.amount}`;
+    }
+    // Availability type: { inStock: true/false }
+    if ('inStock' in value) {
+      return value.inStock ? 'Na sklade' : 'Nedostupné';
+    }
+    // Text type: { snippet: "..." }
+    if ('snippet' in value) {
+      const snippet = value.snippet || '';
+      return snippet.length > 30 ? snippet.substring(0, 30) + '...' : snippet;
+    }
+    // Generic object - try to stringify
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  // Primitive values
+  return String(value);
 }
 
 async function deleteRule(ruleId: string): Promise<void> {
@@ -490,17 +530,30 @@ async function saveRuleConfig(e: Event): Promise<void> {
   }
 
   try {
+    // Fetch all notification channels and add their IDs
+    let channelIds: string[] = [];
+    if (workspaces.length > 0) {
+      try {
+        const channels = await apiRequest<{ id: string; enabled: boolean }[]>(
+          `/notification-channels?workspaceId=${workspaces[0].id}`
+        );
+        channelIds = channels.filter(c => c.enabled).map(c => c.id);
+      } catch (err) {
+        console.log('Could not load notification channels:', err);
+      }
+    }
+
     await apiRequest(`/rules/${ruleId}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        alertPolicy: { conditions },
+        alertPolicy: { conditions, channels: channelIds },
       }),
     });
 
     // Update local state
     const rule = rules.find(r => r.id === ruleId);
     if (rule) {
-      rule.alertPolicy = { conditions };
+      rule.alertPolicy = { conditions, channels: channelIds };
     }
 
     closeConfigModal();
@@ -523,7 +576,8 @@ async function loadPendingElement(): Promise<void> {
   if (stored) {
     pendingElement = stored;
 
-    // Show the selected element
+    // Expand accordion and show the selected element
+    pickerAccordion.classList.remove('collapsed');
     selectionPreview.classList.remove('hidden');
     previewSelectorText.textContent = stored.selector;
     previewValueText.textContent = stored.value || '(empty)';
@@ -556,13 +610,22 @@ async function loadPendingElement(): Promise<void> {
 // Element Picker
 async function startElementPicker(): Promise<void> {
   if (!currentTab?.id) {
-    showToast('No active tab', 'error');
+    showToast('Žiadna aktívna záložka', 'error');
+    return;
+  }
+
+  // Check if it's a special page where content scripts don't work
+  const url = currentTab.url || '';
+  if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
+      url.startsWith('about:') || url.startsWith('edge://') ||
+      url.startsWith('moz-extension://') || url === '') {
+    showToast('Na tejto stránke nemožno vyberať elementy', 'error');
     return;
   }
 
   try {
     // First, clear any pending element
-    await setStorageData({ pendingElement: undefined });
+    await removeStorageKeys(['pendingElement']);
 
     // Send message to content script to start picking
     await chrome.tabs.sendMessage(currentTab.id, { action: 'startPicker' });
@@ -571,7 +634,8 @@ async function startElementPicker(): Promise<void> {
     window.close();
   } catch (error) {
     console.error('Failed to start picker:', error);
-    showToast('Cannot pick elements on this page. Try refreshing.', 'error');
+    // More helpful error message
+    showToast('Obnov stránku (F5) a skús znova', 'error');
   }
 }
 
@@ -680,14 +744,24 @@ async function createRule(event: Event): Promise<void> {
 
     showToast('Pravidlo vytvorené!', 'success');
 
-    // Clear pending element
-    await setStorageData({ pendingElement: undefined });
+    // Clear pending element from storage (properly remove the key)
+    await removeStorageKeys(['pendingElement']);
 
-    // Reset form
+    // Send message to content script to remove highlight
+    if (currentTab?.id) {
+      chrome.tabs.sendMessage(currentTab.id, { action: 'clearSelection' }).catch(() => {
+        // Ignore errors if content script not loaded
+      });
+    }
+
+    // Reset form and collapse accordion
     createRuleForm.reset();
     createRuleForm.classList.add('hidden');
     selectionPreview.classList.add('hidden');
+    previewSelectorText.textContent = '';
+    previewValueText.textContent = '';
     pendingElement = null;
+    pickerAccordion.classList.add('collapsed');
 
     // Refresh rules list to show the new rule
     await loadRules();
@@ -704,12 +778,16 @@ async function createRule(event: Event): Promise<void> {
 async function initPickerView(): Promise<void> {
   showView('picker');
 
-  // Load tab info first (non-blocking)
-  loadCurrentTab();
+  // Load tab info first (MUST await to prevent race condition)
+  await loadCurrentTab();
 
   // CRITICAL: Load workspaces FIRST before showing form
   // This fixes the race condition where form could show before workspaces are ready
   await loadWorkspaces();
+
+  // Collapse accordion by default BEFORE checking pending element
+  // (loadPendingElement will expand it if there's a pending element)
+  pickerAccordion.classList.add('collapsed');
 
   // Only after workspaces are loaded, check for pending element and show form
   await loadPendingElement();
@@ -721,6 +799,11 @@ async function initPickerView(): Promise<void> {
 async function init(): Promise<void> {
   // SECURITY: Clear any legacy saved passwords on startup
   await clearLegacyCredentials();
+
+  // Notify background that popup was opened (clears badge)
+  chrome.runtime.sendMessage({ action: 'popupOpened' }).catch(() => {
+    // Ignore errors if background script not ready
+  });
 
   const isAuthenticated = await checkAuth();
 
@@ -793,6 +876,11 @@ async function init(): Promise<void> {
 
   startPickerBtn.addEventListener('click', startElementPicker);
   createRuleForm.addEventListener('submit', createRule);
+
+  // Accordion toggle (collapsed by default is set in initPickerView)
+  pickerAccordionToggle.addEventListener('click', () => {
+    pickerAccordion.classList.toggle('collapsed');
+  });
 
   // Modal event listeners
   modalClose.addEventListener('click', closeConfigModal);

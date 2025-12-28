@@ -1,6 +1,7 @@
-// Smart fetcher with HTTP-first and headless fallback
+// Smart fetcher with HTTP-first, FlareSolverr, and headless fallback
 import { fetchHttp } from './http';
 import { fetchHeadless, type HeadlessFetchOptions } from './headless';
+import { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 import { detectBlock } from './block-detection';
 import { isJavaScriptRequired } from './spa-detection';
 import type { FetchOptions, FetchResult } from './types';
@@ -8,7 +9,11 @@ import type { FetchOptions, FetchResult } from './types';
 export interface SmartFetchOptions extends FetchOptions {
   // Fallback behavior
   fallbackToHeadless?: boolean; // default true
-  preferredMode?: 'http' | 'headless' | 'auto'; // default 'auto'
+  fallbackToFlareSolverr?: boolean; // default true
+  preferredMode?: 'http' | 'headless' | 'flaresolverr' | 'auto'; // default 'auto'
+
+  // FlareSolverr options
+  flareSolverrUrl?: string; // default http://localhost:8191/v1
 
   // Headless options (used if fallback triggered)
   renderWaitMs?: number;
@@ -18,25 +23,42 @@ export interface SmartFetchOptions extends FetchOptions {
 }
 
 export interface SmartFetchResult extends FetchResult {
-  modeUsed: 'http' | 'headless';
+  modeUsed: 'http' | 'headless' | 'flaresolverr';
   fallbackTriggered: boolean;
   fallbackReason?: string;
 }
 
 /**
- * Smart fetch with automatic HTTP-to-headless fallback
+ * Smart fetch with automatic fallback chain:
  *
  * Strategy:
- * 1. If preferredMode is 'headless', skip HTTP and go straight to headless
+ * 1. If preferredMode is 'headless' or 'flaresolverr', skip HTTP
  * 2. Otherwise, try HTTP first
- * 3. If HTTP fails or returns blocked/JS-heavy content, fallback to headless
- * 4. Return result with metadata about which mode was used
+ * 3. If HTTP fails with Cloudflare block → try FlareSolverr (if available)
+ * 4. If FlareSolverr fails or not available → try headless browser
+ * 5. Return result with metadata about which mode was used
  */
 export async function smartFetch(
   options: SmartFetchOptions
 ): Promise<SmartFetchResult> {
   const preferredMode = options.preferredMode || 'auto';
-  const fallbackEnabled = options.fallbackToHeadless !== false;
+  const fallbackToHeadless = options.fallbackToHeadless !== false;
+  const fallbackToFlareSolverr = options.fallbackToFlareSolverr !== false;
+  const flareSolverrUrl = options.flareSolverrUrl || 'http://localhost:8191/v1';
+
+  // If FlareSolverr is explicitly preferred
+  if (preferredMode === 'flaresolverr') {
+    console.log(`[SmartFetch] Using FlareSolverr (preferred) for ${options.url}`);
+    const result = await fetchFlareSolverr({
+      ...options,
+      flareSolverrUrl,
+    });
+    return {
+      ...result,
+      modeUsed: 'flaresolverr',
+      fallbackTriggered: false,
+    };
+  }
 
   // If headless is explicitly preferred, skip HTTP
   if (preferredMode === 'headless') {
@@ -77,9 +99,9 @@ export async function smartFetch(
   // Determine fallback reason
   const fallbackReason = shouldFallbackDecision.reason;
 
-  // If fallback not enabled, return HTTP result
-  if (!fallbackEnabled) {
-    console.log(`[SmartFetch] HTTP failed but fallback disabled: ${fallbackReason}`);
+  // If no fallback enabled, return HTTP result
+  if (!fallbackToHeadless && !fallbackToFlareSolverr) {
+    console.log(`[SmartFetch] HTTP failed but all fallbacks disabled: ${fallbackReason}`);
     return {
       ...httpResult,
       modeUsed: 'http',
@@ -87,24 +109,71 @@ export async function smartFetch(
     };
   }
 
-  // Try headless
-  console.log(`[SmartFetch] Falling back to headless: ${fallbackReason}`);
-  const { cookies, ...restOptions } = options;
-  const headlessOptions: HeadlessFetchOptions = {
-    ...restOptions,
-    renderWaitMs: options.renderWaitMs || 2000,
-    waitForSelector: options.waitForSelector,
-    screenshotOnChange: options.screenshotOnChange,
-    screenshotPath: options.screenshotPath,
-  };
+  // Check if this looks like a protection/SPA issue
+  const needsRealBrowser =
+    fallbackReason.toLowerCase().includes('cloudflare') ||
+    fallbackReason.toLowerCase().includes('block') ||
+    fallbackReason.toLowerCase().includes('spa') ||
+    fallbackReason.toLowerCase().includes('javascript') ||
+    fallbackReason.toLowerCase().includes('timeout') ||
+    fallbackReason.toLowerCase().includes('failed');
 
-  const headlessResult = await fetchHeadless(headlessOptions);
+  // Try FlareSolverr first - it's more reliable for protected sites
+  if (fallbackToFlareSolverr && needsRealBrowser) {
+    console.log(`[SmartFetch] Trying FlareSolverr: ${fallbackReason}`);
 
+    // Check if FlareSolverr is available
+    const flareSolverrAvailable = await isFlareSolverrAvailable(flareSolverrUrl);
+
+    if (flareSolverrAvailable) {
+      const flareSolverrResult = await fetchFlareSolverr({
+        ...options,
+        flareSolverrUrl,
+      });
+
+      if (flareSolverrResult.success) {
+        console.log(`[SmartFetch] FlareSolverr succeeded for ${options.url}`);
+        return {
+          ...flareSolverrResult,
+          modeUsed: 'flaresolverr',
+          fallbackTriggered: true,
+          fallbackReason,
+        };
+      }
+
+      console.log(`[SmartFetch] FlareSolverr failed, trying headless...`);
+    } else {
+      console.log(`[SmartFetch] FlareSolverr not available, trying headless...`);
+    }
+  }
+
+  // Fallback to headless browser
+  if (fallbackToHeadless) {
+    console.log(`[SmartFetch] Falling back to headless: ${fallbackReason}`);
+    const { cookies, ...restOptions } = options;
+    const headlessOptions: HeadlessFetchOptions = {
+      ...restOptions,
+      renderWaitMs: options.renderWaitMs || 2000,
+      waitForSelector: options.waitForSelector,
+      screenshotOnChange: options.screenshotOnChange,
+      screenshotPath: options.screenshotPath,
+    };
+
+    const headlessResult = await fetchHeadless(headlessOptions);
+
+    return {
+      ...headlessResult,
+      modeUsed: 'headless',
+      fallbackTriggered: true,
+      fallbackReason,
+    };
+  }
+
+  // All fallbacks failed or disabled, return original HTTP result
   return {
-    ...headlessResult,
-    modeUsed: 'headless',
-    fallbackTriggered: true,
-    fallbackReason,
+    ...httpResult,
+    modeUsed: 'http',
+    fallbackTriggered: false,
   };
 }
 

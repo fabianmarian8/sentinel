@@ -70,14 +70,14 @@ export class RateLimiterService {
   /**
    * Generate Redis key for rate limit bucket
    */
-  private getKey(domain: string, mode: 'http' | 'headless'): string {
+  private getKey(domain: string, mode: 'http' | 'headless' | 'flaresolverr'): string {
     return `ratelimit:${mode}:${domain}`;
   }
 
   /**
    * Get token refill rate (tokens per second)
    */
-  private getRefillRate(mode: 'http' | 'headless'): number {
+  private getRefillRate(mode: 'http' | 'headless' | 'flaresolverr'): number {
     if (mode === 'http') {
       return this.defaultConfig.httpRequestsPerMinute / 60;
     }
@@ -98,7 +98,7 @@ export class RateLimiterService {
    */
   async consumeToken(
     domain: string,
-    mode: 'http' | 'headless',
+    mode: 'http' | 'headless' | 'flaresolverr',
   ): Promise<RateLimitResult> {
     const key = this.getKey(domain, mode);
     const now = Date.now();
@@ -186,7 +186,7 @@ export class RateLimiterService {
    */
   async checkLimit(
     domain: string,
-    mode: 'http' | 'headless',
+    mode: 'http' | 'headless' | 'flaresolverr',
   ): Promise<RateLimitResult> {
     const key = this.getKey(domain, mode);
 

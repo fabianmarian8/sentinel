@@ -3,32 +3,112 @@
  *
  * Handles:
  * - Element selection storage (from content script)
- * - Badge updates showing active rules count
+ * - Badge updates showing unread alerts count
  * - Context menu for quick rule creation
+ * - Periodic polling for new alerts
  */
 
 import {
   SelectedElement,
   getStorageData,
   setStorageData,
+  apiRequest,
+  StorageData,
 } from '../shared/storage';
 
+// Extended storage interface for badge tracking
+interface ExtendedStorageData extends StorageData {
+  lastSeenAlertTime?: string;
+  unreadAlertCount?: number;
+}
 
-// Badge Management - simplified, no API call (just show if logged in)
-async function updateBadgeForTab(tabId: number): Promise<void> {
+// Alert polling interval (30 seconds)
+const ALERT_POLL_INTERVAL_MS = 30000;
+
+// Badge colors
+const BADGE_COLOR_ALERT = '#EF4444'; // Red for alerts
+const BADGE_COLOR_NORMAL = '#4f46e5'; // Indigo when logged in
+
+// Store alarm name
+const ALERT_POLL_ALARM = 'sentinel-alert-poll';
+
+// Fetch unread alerts count from API
+async function fetchUnreadAlertsCount(): Promise<number> {
+  try {
+    const { authToken } = await getStorageData();
+    if (!authToken) return 0;
+
+    // Get workspaces first
+    const workspaces = await apiRequest<{ id: string }[]>('/workspaces');
+    if (!workspaces || workspaces.length === 0) return 0;
+
+    // Fetch open alerts (not acknowledged or resolved)
+    const url = `/alerts?workspaceId=${workspaces[0].id}&status=open&limit=100`;
+
+    // API returns { alerts: [...], count: N }
+    const response = await apiRequest<{ alerts: { id: string }[]; count: number }>(url);
+    return response?.count || 0;
+  } catch (error) {
+    console.error('Failed to fetch alerts count:', error);
+    return 0;
+  }
+}
+
+// Update badge with alert count
+async function updateAlertBadge(): Promise<void> {
   try {
     const { authToken } = await getStorageData();
 
-    if (authToken) {
-      // Show a dot to indicate logged in
-      chrome.action.setBadgeText({ tabId, text: '' });
-      chrome.action.setBadgeBackgroundColor({ tabId, color: '#4f46e5' });
+    if (!authToken) {
+      // Not logged in - clear badge
+      chrome.action.setBadgeText({ text: '' });
+      return;
+    }
+
+    const count = await fetchUnreadAlertsCount();
+
+    // Save count to storage
+    await chrome.storage.local.set({ unreadAlertCount: count });
+
+    if (count > 0) {
+      // Show count (max "99+" for large numbers)
+      const badgeText = count > 99 ? '99+' : String(count);
+      chrome.action.setBadgeText({ text: badgeText });
+      chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_ALERT });
     } else {
-      chrome.action.setBadgeText({ tabId, text: '' });
+      // No alerts - show empty badge
+      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_NORMAL });
     }
   } catch (error) {
-    console.error('Failed to update badge:', error);
+    console.error('Failed to update alert badge:', error);
   }
+}
+
+// Clear badge and mark alerts as seen
+async function clearBadge(): Promise<void> {
+  // Set last seen time to now
+  await chrome.storage.local.set({
+    lastSeenAlertTime: new Date().toISOString(),
+    unreadAlertCount: 0,
+  });
+  chrome.action.setBadgeText({ text: '' });
+}
+
+// Setup periodic alert polling using chrome.alarms
+function setupAlertPolling(): void {
+  // Create alarm for periodic polling
+  chrome.alarms.create(ALERT_POLL_ALARM, {
+    periodInMinutes: ALERT_POLL_INTERVAL_MS / 60000,
+  });
+
+  // Initial poll
+  updateAlertBadge();
+}
+
+// Badge Management for tab (deprecated - now using global badge)
+async function updateBadgeForTab(tabId: number): Promise<void> {
+  // No-op - badge is now global, updated by alert polling
 }
 
 // Context Menu
@@ -94,6 +174,19 @@ async function handleElementSelected(
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Sentinel extension installed');
   setupContextMenu();
+  setupAlertPolling();
+});
+
+// Handle alarm for periodic polling
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALERT_POLL_ALARM) {
+    updateAlertBadge();
+  }
+});
+
+// Also check on service worker startup (in case it was terminated)
+chrome.runtime.onStartup.addListener(() => {
+  setupAlertPolling();
 });
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -190,6 +283,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'clearPendingElement') {
     setStorageData({ pendingElement: undefined }).then(() => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  // Clear badge when popup opens (user has seen the alerts)
+  if (message.action === 'popupOpened') {
+    clearBadge().then(() => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  // Force refresh badge (e.g., after login)
+  if (message.action === 'refreshAlertBadge') {
+    updateAlertBadge().then(() => {
       sendResponse({ success: true });
     });
     return true;
