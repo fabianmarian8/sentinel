@@ -147,6 +147,10 @@ export class RunProcessor extends WorkerHost {
 
     try {
       // Step 4: Fetch HTML using smartFetch (supports HTTP + headless fallback)
+      // Get extraction selector for element-only screenshots (smaller file size)
+      const extraction = rule.extraction as unknown as ExtractionConfig;
+      const screenshotSelector = extraction?.selector;
+
       const fetchResult = await smartFetch({
         url: rule.source.url,
         timeout: 30000, // 30s timeout for slow sites
@@ -162,6 +166,7 @@ export class RunProcessor extends WorkerHost {
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
         screenshotOnChange: screenshotOnChange,
         screenshotPath: screenshotPath ?? undefined,
+        screenshotSelector: screenshotSelector,
       });
 
       // Step 5: Update run with fetch results (use actual mode from smartFetch)
@@ -201,8 +206,7 @@ export class RunProcessor extends WorkerHost {
         return await this.handleFetchError(run.id, fetchResult);
       }
 
-      // Step 6: Extract value
-      const extraction = rule.extraction as unknown as ExtractionConfig;
+      // Step 6: Extract value (extraction already defined above for screenshotSelector)
       const extractResult = extract(fetchResult.html!, extraction);
 
       if (!extractResult.success) {
@@ -402,15 +406,9 @@ export class RunProcessor extends WorkerHost {
    */
   private async triggerAlerts(rule: any, value: any, change: any) {
     const alertPolicy = rule.alertPolicy as unknown as AlertPolicy | null;
+    const hasChannels = alertPolicy?.channels && alertPolicy.channels.length > 0;
 
-    if (!alertPolicy?.channels || alertPolicy.channels.length === 0) {
-      this.logger.debug(
-        `[Rule ${rule.id}] No notification channels configured, skipping alert`,
-      );
-      return;
-    }
-
-    if (!alertPolicy.conditions || alertPolicy.conditions.length === 0) {
+    if (!alertPolicy?.conditions || alertPolicy.conditions.length === 0) {
       this.logger.debug(
         `[Rule ${rule.id}] No alert conditions configured, skipping alert`,
       );
@@ -491,18 +489,24 @@ export class RunProcessor extends WorkerHost {
       `[Rule ${rule.id}] Alert created (id: ${alert.id}, severity: ${alertSeverity})`,
     );
 
-    // Enqueue alert dispatch job
-    await this.queueService.enqueueAlertDispatch({
-      alertId: alert.id,
-      workspaceId: rule.source.workspaceId,
-      ruleId: rule.id,
-      channels: alertPolicy.channels,
-      dedupeKey,
-    });
+    // Enqueue alert dispatch job only if channels are configured
+    if (hasChannels) {
+      await this.queueService.enqueueAlertDispatch({
+        alertId: alert.id,
+        workspaceId: rule.source.workspaceId,
+        ruleId: rule.id,
+        channels: alertPolicy.channels,
+        dedupeKey,
+      });
 
-    this.logger.log(
-      `[Rule ${rule.id}] Alert dispatch enqueued (channels: ${alertPolicy.channels.join(', ')})`,
-    );
+      this.logger.log(
+        `[Rule ${rule.id}] Alert dispatch enqueued (channels: ${alertPolicy.channels.join(', ')})`,
+      );
+    } else {
+      this.logger.debug(
+        `[Rule ${rule.id}] No notification channels configured, alert saved but not dispatched`,
+      );
+    }
   }
 
   /**

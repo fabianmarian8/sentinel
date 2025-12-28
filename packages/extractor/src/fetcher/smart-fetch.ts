@@ -20,6 +20,7 @@ export interface SmartFetchOptions extends FetchOptions {
   waitForSelector?: string;
   screenshotOnChange?: boolean;
   screenshotPath?: string;
+  screenshotSelector?: string; // Capture only this element (smaller file size)
 }
 
 export interface SmartFetchResult extends FetchResult {
@@ -52,6 +53,9 @@ export async function smartFetch(
     const result = await fetchFlareSolverr({
       ...options,
       flareSolverrUrl,
+      // Pass screenshot options to FlareSolverr
+      returnScreenshot: options.screenshotOnChange,
+      screenshotPath: options.screenshotPath,
     });
     return {
       ...result,
@@ -69,6 +73,7 @@ export async function smartFetch(
       waitForSelector: options.waitForSelector,
       screenshotOnChange: options.screenshotOnChange,
       screenshotPath: options.screenshotPath,
+      screenshotSelector: options.screenshotSelector,
     };
 
     const result = await fetchHeadless(headlessOptions);
@@ -118,10 +123,9 @@ export async function smartFetch(
     fallbackReason.toLowerCase().includes('timeout') ||
     fallbackReason.toLowerCase().includes('failed');
 
-  // Try FlareSolverr first - it's more reliable for protected sites
-  // BUT skip FlareSolverr if screenshots are requested (FlareSolverr doesn't support them)
-  const skipFlareSolverr = options.screenshotOnChange === true;
-  if (fallbackToFlareSolverr && needsRealBrowser && !skipFlareSolverr) {
+  // Try FlareSolverr first - it's more reliable for Cloudflare-protected sites
+  // FlareSolverr now supports screenshots via returnScreenshot parameter
+  if (fallbackToFlareSolverr && needsRealBrowser) {
     console.log(`[SmartFetch] Trying FlareSolverr: ${fallbackReason}`);
 
     // Check if FlareSolverr is available
@@ -131,6 +135,9 @@ export async function smartFetch(
       const flareSolverrResult = await fetchFlareSolverr({
         ...options,
         flareSolverrUrl,
+        // Pass screenshot options to FlareSolverr
+        returnScreenshot: options.screenshotOnChange,
+        screenshotPath: options.screenshotPath,
       });
 
       if (flareSolverrResult.success) {
@@ -159,6 +166,7 @@ export async function smartFetch(
       waitForSelector: options.waitForSelector,
       screenshotOnChange: options.screenshotOnChange,
       screenshotPath: options.screenshotPath,
+      screenshotSelector: options.screenshotSelector,
     };
 
     const headlessResult = await fetchHeadless(headlessOptions);

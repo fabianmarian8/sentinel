@@ -7,6 +7,8 @@
  * @see https://github.com/FlareSolverr/FlareSolverr
  */
 
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import type { FetchResult, FetchOptions } from './types';
 
 export interface FlareSolverrOptions extends FetchOptions {
@@ -19,6 +21,16 @@ export interface FlareSolverrOptions extends FetchOptions {
    * Maximum timeout for FlareSolverr request in ms (default: 60000)
    */
   maxTimeout?: number;
+
+  /**
+   * Request screenshot from FlareSolverr (returns base64 PNG)
+   */
+  returnScreenshot?: boolean;
+
+  /**
+   * Path to save screenshot file (if returnScreenshot is true)
+   */
+  screenshotPath?: string;
 }
 
 export interface FlareSolverrResponse {
@@ -43,6 +55,7 @@ export interface FlareSolverrResponse {
       sameSite: string;
     }>;
     userAgent: string;
+    screenshot?: string; // Base64 PNG when returnScreenshot=true
   };
 }
 
@@ -76,6 +89,11 @@ export async function fetchFlareSolverr(
     // Add cookies if provided
     if (options.cookies) {
       requestBody.cookies = parseCookieString(options.cookies);
+    }
+
+    // Request screenshot if enabled
+    if (options.returnScreenshot) {
+      requestBody.returnScreenshot = true;
     }
 
     const response = await fetch(flareSolverrUrl, {
@@ -115,6 +133,24 @@ export async function fetchFlareSolverr(
       `[FlareSolverr] Success for ${options.url} (${data.solution.response.length} bytes, ${totalTime}ms)`
     );
 
+    // Handle screenshot if present
+    let screenshotPath: string | undefined;
+    if (data.solution.screenshot && options.screenshotPath) {
+      try {
+        // Ensure directory exists
+        const dir = path.dirname(options.screenshotPath);
+        await fs.mkdir(dir, { recursive: true });
+
+        // Decode base64 and save
+        const screenshotBuffer = Buffer.from(data.solution.screenshot, 'base64');
+        await fs.writeFile(options.screenshotPath, screenshotBuffer);
+        screenshotPath = options.screenshotPath;
+        console.log(`[FlareSolverr] Screenshot saved to ${options.screenshotPath}`);
+      } catch (err) {
+        console.error(`[FlareSolverr] Failed to save screenshot: ${err}`);
+      }
+    }
+
     // Convert cookies to header format for potential reuse
     const cookieHeader = data.solution.cookies
       .map((c) => `${c.name}=${c.value}`)
@@ -138,6 +174,7 @@ export async function fetchFlareSolverr(
         'x-flaresolverr-cookies': cookieHeader,
         'x-flaresolverr-user-agent': data.solution.userAgent,
       },
+      screenshotPath,
     };
   } catch (error) {
     const totalTime = Date.now() - startTime;

@@ -23,7 +23,8 @@ export function normalizePrice(
   let processed = rawValue.trim();
 
   // Step 1: Strip currency tokens (€, EUR, $, USD, etc.)
-  const defaultStripTokens = ['€', 'EUR', 'eur', '$', 'USD', 'usd', config.currency, config.currency.toLowerCase()];
+  const currencyTokens = config.currency ? [config.currency, config.currency.toLowerCase()] : [];
+  const defaultStripTokens = ['€', 'EUR', 'eur', '$', 'USD', 'usd', ...currencyTokens];
   const stripTokens = config.stripTokens || defaultStripTokens;
 
   for (const token of stripTokens) {
@@ -75,7 +76,7 @@ export function normalizePrice(
 
   return {
     value: roundedValue,
-    currency: config.currency
+    currency: config.currency || 'EUR' // Default to EUR if not specified
   };
 }
 
@@ -83,11 +84,11 @@ export function normalizePrice(
  * Returns default decimal and thousand separators for common locales.
  * Falls back to en-US format if locale is unknown.
  */
-function getLocaleDefaults(locale: string): {
+function getLocaleDefaults(locale: string | undefined): {
   decimalSeparator: ',' | '.';
   thousandSeparators: string[];
 } {
-  const normalizedLocale = locale.toLowerCase();
+  const normalizedLocale = (locale || 'en').toLowerCase();
 
   // Slovak, Czech, German - comma decimal, space/dot thousand separator
   if (normalizedLocale.startsWith('sk') ||

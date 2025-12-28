@@ -57,13 +57,20 @@ export function RuleCard({ rule }: RuleCardProps) {
 
   const getCurrentValue = () => {
     if (!rule.currentState?.lastStable) return 'No data';
-    const value = rule.currentState.lastStable;
-    if (typeof value === 'object') {
-      if ('amount' in value) return `${value.currency ?? ''}${value.amount}`;
-      if ('inStock' in value) return value.inStock ? 'In Stock' : 'Out of Stock';
-      if ('snippet' in value) return value.snippet?.substring(0, 50) + '...';
+    const val = rule.currentState.lastStable;
+    if (typeof val === 'object' && val !== null) {
+      // Price/Number: { value: number, currency?: string }
+      if ('value' in val && typeof val.value === 'number') {
+        return String(val.value);
+      }
+      // Legacy price format: { amount: number, currency: string }
+      if ('amount' in val) return String(val.amount);
+      // Availability: { inStock: boolean }
+      if ('inStock' in val) return val.inStock ? 'In Stock' : 'Out of Stock';
+      // Text: { snippet: string, hash: string }
+      if ('snippet' in val) return val.snippet?.substring(0, 50) + '...';
     }
-    return String(value);
+    return String(val);
   };
 
   return (
