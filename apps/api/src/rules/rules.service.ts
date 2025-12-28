@@ -326,7 +326,7 @@ export class RulesService {
           orderBy: {
             createdAt: 'desc',
           },
-          take: 5,
+          take: 10,
           include: {
             run: {
               select: {
@@ -334,6 +334,7 @@ export class RulesService {
                 finishedAt: true,
                 httpStatus: true,
                 errorCode: true,
+                screenshotPath: true,
               },
             },
           },
