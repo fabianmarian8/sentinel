@@ -302,6 +302,9 @@ export class RunProcessor extends WorkerHost {
         );
 
         // Step 13a: Upload screenshot to storage if captured
+        this.logger.debug(
+          `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}`,
+        );
         if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath) {
           try {
             const storageClient = getStorageClientAuto();

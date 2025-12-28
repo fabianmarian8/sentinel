@@ -119,7 +119,9 @@ export async function smartFetch(
     fallbackReason.toLowerCase().includes('failed');
 
   // Try FlareSolverr first - it's more reliable for protected sites
-  if (fallbackToFlareSolverr && needsRealBrowser) {
+  // BUT skip FlareSolverr if screenshots are requested (FlareSolverr doesn't support them)
+  const skipFlareSolverr = options.screenshotOnChange === true;
+  if (fallbackToFlareSolverr && needsRealBrowser && !skipFlareSolverr) {
     console.log(`[SmartFetch] Trying FlareSolverr: ${fallbackReason}`);
 
     // Check if FlareSolverr is available
