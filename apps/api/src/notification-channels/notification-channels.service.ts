@@ -383,7 +383,7 @@ export class NotificationChannelsService {
       throw new BadRequestException('Slack OAuth not configured');
     }
 
-    const scopes = 'chat:write,channels:read,groups:read';
+    const scopes = 'chat:write,chat:write.public,channels:read,groups:read';
     return `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`;
   }
 }
