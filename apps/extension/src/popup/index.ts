@@ -79,8 +79,7 @@ const authSubmitBtn = document.getElementById('auth-submit-btn') as HTMLButtonEl
 const authToggleText = document.getElementById('auth-toggle-text') as HTMLSpanElement;
 const authToggleLink = document.getElementById('auth-toggle-link') as HTMLAnchorElement;
 
-const pageTitle = document.getElementById('page-title') as HTMLHeadingElement;
-const pageUrl = document.getElementById('page-url') as HTMLParagraphElement;
+// Page info elements removed - no longer displayed in popup
 
 const startPickerBtn = document.getElementById('start-picker') as HTMLButtonElement;
 const selectionPreview = document.getElementById('selection-preview') as HTMLDivElement;
@@ -278,11 +277,6 @@ async function loadWorkspaces(): Promise<void> {
 async function loadCurrentTab(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tab;
-
-  if (tab) {
-    pageTitle.textContent = tab.title || 'Untitled Page';
-    pageUrl.textContent = tab.url || '';
-  }
 }
 
 // Load Rules
@@ -596,10 +590,6 @@ async function loadPendingElement(): Promise<void> {
     selectionPreview.classList.remove('hidden');
     previewSelectorText.textContent = stored.selector;
     previewValueText.textContent = stored.value || '(empty)';
-
-    // Update page info to show the page where element was selected
-    pageTitle.textContent = stored.pageTitle || 'Unknown Page';
-    pageUrl.textContent = stored.pageUrl || '';
 
     createRuleForm.classList.remove('hidden');
 
