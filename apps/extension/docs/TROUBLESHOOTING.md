@@ -14,6 +14,7 @@ Kompletná príručka riešenia problémov s Chrome rozšírením Sentinel.
 4. [Element Picker](#4-element-picker)
 5. [API komunikácia](#5-api-komunikácia)
 6. [Screenshots](#6-screenshots)
+7. [Worker - Extrakcia a Alerty](#7-worker---extrakcia-a-alerty)
 
 ---
 
@@ -580,10 +581,105 @@ docker exec -it n8n-postgres-1 psql -U n8n -d sentinel
 
 ---
 
+## 7. Worker - Extrakcia a Alerty
+
+### 7.1 False alerty z glitch extrakcií
+
+**Príznaky:**
+- Alert pre zmenu hodnoty, ale screenshot ukazuje správnu hodnotu
+- Hodnota sa "zmenila" len na 1 beh, potom sa vrátila späť
+- Napr. cena 413,90 € → 11,90 € → 413,90 € (prostredná hodnota je glitch)
+
+**Príčina:** Playwright headless browser môže zachytiť stránku v prechodnom stave:
+- Overlay/popup prekrýva hlavnú cenu a selektor zachytí inú cenu
+- Race condition - stránka nie je plne načítaná
+- Cookie banner alebo promo element obsahuje podobnú cenu
+
+**Riešenie:**
+Default `requireConsecutive` zmenený z 1 na 2 v `run.processor.ts`:
+
+```typescript
+// Step 8: Anti-flap check
+// Default to 2 consecutive observations to filter out glitch extractions
+const requireConsecutive = alertPolicy?.requireConsecutive ?? 2;
+```
+
+Teraz musí byť nová hodnota videná **2x po sebe** aby sa potvrdila zmena.
+
+**Manuálna oprava stavu pravidla (ak glitch už nastavil zlú hodnotu):**
+```sql
+UPDATE rule_state
+SET last_stable = '{"value": 41390, "currency": "EUR"}'::jsonb,
+    candidate = null,
+    candidate_count = 0
+WHERE rule_id = '<rule_id>';
+```
+
+---
+
+### 7.2 Alert sa nevytvoril pre zmenu hodnoty
+
+**Príznaky:**
+- Observation má `change_detected = true`
+- Ale alert neexistuje
+
+**Príčina A - Deduplication:** Rovnaká hodnota už bola alertovaná v ten deň.
+- Dedupe key = `ruleId + conditionIds + valueHash + dayBucket`
+- Napr. Monitor:50 sleduje sekundy (0-59) - hodnoty sa opakujú počas dňa
+- Prvý alert pre hodnotu "19" o 14:40 → OK
+- Druhý alert pre hodnotu "19" o 17:50 → BLOKOVANÝ (rovnaký dedupe key)
+
+**Príčina B - Anti-flap:** Hodnota nebola potvrdená (requireConsecutive > 1)
+- Glitch hodnota sa objavila len 1x, potom sa vrátila späť
+- Anti-flap správne nepotvrdil zmenu
+
+**Príčina C - Podmienky alertu:**
+- `alertPolicy.conditions` je prázdne alebo chýba
+- Podmienka nebola splnená (napr. `value_below` ale hodnota je vyššia)
+
+**Debug:**
+```sql
+-- Skontroluj observácie a alerty
+SELECT
+  TO_CHAR(o.created_at, 'HH24:MI:SS') as time,
+  o.extracted_normalized,
+  o.change_detected,
+  (SELECT COUNT(*) FROM alerts a
+   WHERE a.rule_id = o.rule_id
+   AND a.triggered_at BETWEEN o.created_at - interval '5s' AND o.created_at + interval '5s'
+  ) as alert
+FROM observations o
+WHERE o.rule_id = '<rule_id>'
+ORDER BY o.created_at DESC LIMIT 10;
+```
+
+---
+
+### 7.3 Extrakcia vracia nesprávnu hodnotu
+
+**Príznaky:**
+- Screenshot ukazuje správnu hodnotu
+- Ale `extracted_normalized` je iná hodnota
+
+**Príčiny:**
+1. **Selektor zachytáva iný element** - doprava, mesačná splátka, stará cena
+2. **`textContent()` vs `innerText()`** - textContent zahŕňa skryté elementy
+3. **Stránka v prechodnom stave** - overlay, loading, hydration
+
+**Odporúčania od Codex subagenta:**
+- Použiť container-scoped selektor (nie globálny)
+- Použiť `innerText()` (viditeľný text) namiesto `textContent()`
+- Čítať 2x s 250ms medzerou a porovnať
+- Validácia rozsahu - odmietnuť nepravdepodobné hodnoty
+- Fallback na JSON-LD (`script[type="application/ld+json"]`)
+
+---
+
 ## Changelog
 
 | Dátum | Problém | Riešenie |
 |-------|---------|----------|
+| 2025-12-29 | False alert z glitch extrakcie | Default `requireConsecutive` zmenený na 2 |
 | 2025-12-29 | Badge počíta staré alerty | Pridaný `&since=` filter |
 | 2025-12-29 | CSS-in-JS hash triedy | Implementovaný `@medv/finder` s blacklistom |
 | 2025-12-29 | Cookie banner na screenshote | Navigation handling po cookie click |
