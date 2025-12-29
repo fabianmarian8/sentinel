@@ -17,6 +17,7 @@ import {
   apiRequest,
   clearLegacyCredentials,
 } from '../shared/storage';
+import { getErrorInfo } from '@sentinel/shared';
 
 interface Workspace {
   id: string;
@@ -42,6 +43,8 @@ interface Rule {
   ruleType: string;
   enabled: boolean;
   healthScore: number;
+  lastErrorCode?: string | null;
+  lastErrorAt?: string | null;
   source: {
     url: string;
     domain: string;
@@ -337,6 +340,15 @@ function displayRules(): void {
         </span>
         ${rule.observationCount ? `<span class="text-muted text-small" style="margin-left: 8px">${rule.observationCount} pozorovaní</span>` : ''}
       </div>
+      ${rule.lastErrorCode ? (() => {
+        const errorInfo = getErrorInfo(rule.lastErrorCode);
+        return errorInfo ? `
+          <div class="rule-error" style="margin-top: 6px; padding: 6px 8px; background: ${errorInfo.severity === 'critical' ? '#fef2f2' : errorInfo.severity === 'error' ? '#fef2f2' : errorInfo.severity === 'warning' ? '#fffbeb' : '#eff6ff'}; border-radius: 4px; border-left: 3px solid ${errorInfo.severity === 'critical' ? '#dc2626' : errorInfo.severity === 'error' ? '#ef4444' : errorInfo.severity === 'warning' ? '#f59e0b' : '#3b82f6'};">
+            <div style="font-weight: 500; font-size: 11px; color: ${errorInfo.severity === 'critical' ? '#991b1b' : errorInfo.severity === 'error' ? '#b91c1c' : errorInfo.severity === 'warning' ? '#92400e' : '#1e40af'};">${escapeHtml(errorInfo.title)}</div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${escapeHtml(errorInfo.recommendation)}</div>
+          </div>
+        ` : '';
+      })() : ''}
     </div>
   `).join('');
 
