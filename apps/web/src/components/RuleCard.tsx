@@ -93,6 +93,26 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
     return `${diffDays}d ago`;
   };
 
+  const formatTimeUntil = (dateStr: string | null) => {
+    if (!dateStr) return 'Nikdy';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = date.getTime() - now.getTime();
+
+    // Ak je v minulosti, už prebehlo alebo práve beží
+    if (diffMs < 0) return 'Teraz';
+
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSecs < 60) return `o ${diffSecs}s`;
+    if (diffMins < 60) return `o ${diffMins} min`;
+    if (diffHours < 24) return `o ${diffHours}h`;
+    return `o ${diffDays}d`;
+  };
+
   const getRuleTypeIcon = (type: string) => {
     switch (type) {
       case 'price':
@@ -225,7 +245,7 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
 
         <div className="mt-4 flex items-center justify-between">
           <span className="text-xs text-gray-400">
-            {rule.enabled ? `Ďalšia kontrola: ${formatTimeAgo(rule.nextRunAt)}` : 'Pozastavené'}
+            {rule.enabled ? `Ďalšia kontrola: ${formatTimeUntil(rule.nextRunAt)}` : 'Pozastavené'}
           </span>
           <div className="flex items-center gap-1">
             {/* Pause/Resume button */}
