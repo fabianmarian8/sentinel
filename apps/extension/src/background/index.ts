@@ -50,12 +50,13 @@ async function fetchUnreadAlertsCount(): Promise<number> {
     const url = `/alerts?workspaceId=${workspaces[0].id}&status=open&limit=100`;
 
     // API returns { alerts: [...], count: N }
-    const response = await apiRequest<{ alerts: { id: string; createdAt: string }[]; count: number }>(url);
+    // Note: Alert model uses 'triggeredAt', not 'createdAt'!
+    const response = await apiRequest<{ alerts: { id: string; triggeredAt: string }[]; count: number }>(url);
 
-    // Filter client-side: only count alerts created after lastSeenTime
+    // Filter client-side: only count alerts triggered after lastSeenTime
     if (lastSeenTime && response?.alerts) {
       const lastSeenDate = new Date(lastSeenTime);
-      const newAlerts = response.alerts.filter(a => new Date(a.createdAt) > lastSeenDate);
+      const newAlerts = response.alerts.filter(a => new Date(a.triggeredAt) > lastSeenDate);
       return newAlerts.length;
     }
 
