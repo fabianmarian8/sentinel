@@ -18,6 +18,8 @@ export interface FetchResult {
   };
   headers: Record<string, string>;
   screenshotPath?: string | null;
+  // FlareSolverr specific - indicates if CAPTCHA was solved (paid service)
+  flareSolverrMessage?: string;
 }
 
 export interface FetchOptions {

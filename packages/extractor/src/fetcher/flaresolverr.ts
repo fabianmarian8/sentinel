@@ -256,6 +256,8 @@ export async function fetchFlareSolverr(
         'x-flaresolverr-user-agent': data.solution.userAgent,
       },
       screenshotPath,
+      // Pass FlareSolverr message to detect if CAPTCHA was solved (paid 2captcha service)
+      flareSolverrMessage: data.message,
     };
   } catch (error) {
     const totalTime = Date.now() - startTime;

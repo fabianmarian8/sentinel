@@ -210,32 +210,26 @@ export class RunProcessor extends WorkerHost {
         );
       }
 
-      // Auto-enforce 1-day interval for FlareSolverr/2captcha sites (cost limitation)
-      // ONLY trigger for actual Cloudflare/CAPTCHA protection, NOT for SPA fallback
+      // Auto-enforce 1-day interval ONLY when 2captcha (paid service) was used
+      // FlareSolverr JS challenges are FREE - no restrictions needed
+      // Only restrict when FlareSolverr message indicates CAPTCHA was solved (paid 2captcha)
       if (
         fetchResult.modeUsed === 'flaresolverr' &&
         !rule.captchaIntervalEnforced
       ) {
-        // Check if FlareSolverr was used for actual protection bypass (not just SPA rendering)
-        const fallbackReason = (fetchResult.fallbackReason || '').toLowerCase();
-        const isActualProtection =
-          fallbackReason.includes('block') ||
-          fallbackReason.includes('cloudflare') ||
-          fallbackReason.includes('captcha') ||
-          fallbackReason.includes('403') ||
-          fallbackReason.includes('forbidden');
+        const flareSolverrMsg = (fetchResult.flareSolverrMessage || '').toLowerCase();
 
-        // SPA sites don't need 1-day interval - only sites with actual protection
-        const isSpaOnly = fallbackReason.includes('javascript') || fallbackReason.includes('spa');
+        // ONLY trigger if FlareSolverr explicitly solved a CAPTCHA (uses paid 2captcha API)
+        // Messages like "Challenge solved!" are FREE (JS challenge bypass)
+        // Messages like "Captcha solved" indicate paid 2captcha usage
+        const usedPaidCaptchaSolver = flareSolverrMsg.includes('captcha');
 
-        if (isActualProtection && !isSpaOnly) {
+        if (usedPaidCaptchaSolver) {
           const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
           const currentInterval = currentSchedule?.intervalSeconds ?? 0;
           const ONE_DAY_SEC = 86400;
 
           if (currentInterval < ONE_DAY_SEC) {
-            // Save original schedule and enforce 1-day interval
-            // IMPORTANT: Also update nextRunAt immediately to override scheduler's stale value
             const newNextRunAt = new Date(Date.now() + ONE_DAY_SEC * 1000);
             await this.prisma.rule.update({
               where: { id: ruleId },
@@ -247,12 +241,12 @@ export class RunProcessor extends WorkerHost {
               },
             });
             this.logger.warn(
-              `[Job ${job.id}] Rule ${ruleId}: CAPTCHA/Cloudflare detected, interval auto-changed from ${currentInterval}s to ${ONE_DAY_SEC}s (1 day), next run at ${newNextRunAt.toISOString()}`,
+              `[Job ${job.id}] Rule ${ruleId}: 2captcha used (paid), interval changed to 1 day`,
             );
           }
         } else {
           this.logger.debug(
-            `[Job ${job.id}] FlareSolverr used for SPA rendering (${fallbackReason}), keeping original interval`,
+            `[Job ${job.id}] FlareSolverr: "${flareSolverrMsg}" - no paid CAPTCHA, keeping interval`,
           );
         }
       }
