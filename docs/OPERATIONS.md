@@ -175,6 +175,8 @@ mc cp local/sentinel-storage/rules/xxx/runs/yyy/screenshot.png ./
 
 ## Deployment
 
+⚠️ **DÔLEŽITÉ:** Vždy používaj `git pull`, **NIKDY** `rsync`! Rsync prepíše .env súbory a spôsobí výpadky.
+
 ### Worker update
 
 ```bash
@@ -200,6 +202,37 @@ systemctl restart sentinel-api
 ```bash
 cd /root/sentinel/packages/shared
 npx prisma migrate deploy
+```
+
+### Referenčná konfigurácia worker .env
+
+```bash
+# /root/sentinel/apps/worker/.env
+NODE_ENV=production
+DATABASE_URL=postgresql://n8n:n8n_password_2024@localhost:5432/sentinel?schema=public
+REDIS_URL=redis://localhost:6379
+PUPPETEER_HEADLESS=true
+PUPPETEER_TIMEOUT=30000
+PROXY_URL=
+ENCRYPTION_KEY=sentinel-super-secret-encryption-key-32-chars-min
+S3_BUCKET=sentinel-storage
+S3_ENDPOINT=https://storage.taxinearme.sk
+S3_ACCESS_KEY_ID=sentinel_admin
+S3_SECRET_ACCESS_KEY=sentinel_minio_2024_secure
+S3_REGION=us-east-1
+S3_FORCE_PATH_STYLE=true
+```
+
+### Referenčná konfigurácia API .env
+
+```bash
+# /root/sentinel/apps/api/.env
+NODE_ENV=production
+DATABASE_URL=postgresql://n8n:n8n_password_2024@localhost:5432/sentinel?schema=public
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=<NIKDY NEMENIŤ!>
+ENCRYPTION_KEY=sentinel-super-secret-encryption-key-32-chars-min
+PORT=3000
 ```
 
 ---
@@ -333,10 +366,10 @@ cloudflared tunnel info hetzner-server
    cat /root/sentinel/apps/worker/.env | grep S3
    ```
 
-2. Musí obsahovať (pre MinIO):
+2. Musí obsahovať (pre MinIO) - **POZOR na S3_ENDPOINT!**:
    ```
    S3_BUCKET=sentinel-storage
-   S3_ENDPOINT=http://localhost:9000
+   S3_ENDPOINT=https://storage.taxinearme.sk
    S3_ACCESS_KEY_ID=sentinel_admin
    S3_SECRET_ACCESS_KEY=sentinel_minio_2024_secure
    S3_REGION=us-east-1
@@ -355,7 +388,70 @@ cloudflared tunnel info hetzner-server
    systemctl restart sentinel-worker
    ```
 
-**DÔLEŽITÉ:** Pre MinIO je potrebný `S3_FORCE_PATH_STYLE=true`!
+**DÔLEŽITÉ:**
+- `S3_FORCE_PATH_STYLE=true` je povinný pre MinIO!
+- `S3_ENDPOINT` musí byť **verejná URL** (`https://storage.taxinearme.sk`), nie `localhost:9000`!
+
+---
+
+### Screenshot URL ukazuje na localhost (nefunguje v browseri)
+
+**Príčina:** `S3_ENDPOINT` v worker .env je nastavený na `http://localhost:9000` namiesto verejnej URL.
+
+**Príznaky:**
+- V browseri "ERR_CONNECTION_REFUSED" pri otváraní screenshotu
+- URL obsahuje `localhost:9000`
+
+**Riešenie:**
+1. Oprav S3_ENDPOINT v worker .env:
+   ```bash
+   sed -i 's|S3_ENDPOINT=http://localhost:9000|S3_ENDPOINT=https://storage.taxinearme.sk|' /root/sentinel/apps/worker/.env
+   systemctl restart sentinel-worker
+   ```
+
+2. Oprav existujúce URL v databáze:
+   ```bash
+   docker exec n8n-postgres-1 psql -U n8n -d sentinel -c "
+   UPDATE runs
+   SET screenshot_path = REPLACE(screenshot_path, 'http://localhost:9000', 'https://storage.taxinearme.sk')
+   WHERE screenshot_path LIKE '%localhost:9000%';
+   "
+   ```
+
+---
+
+### CAPTCHA warning na pravidle bez CAPTCHA
+
+**Príčina:** Systém nastavuje `captcha_interval_enforced=true` keď použije FlareSolverr, ale FlareSolverr sa používa aj pre iné ochrany (Cloudflare JS challenge), nie len CAPTCHA.
+
+**Príznaky:**
+- Pravidlo zobrazuje "Interval zmenený na 1 deň (CAPTCHA ochrana)"
+- Ale stránka nemá CAPTCHA, len Cloudflare ochranu
+
+**Diagnóza:**
+```bash
+# Over či stránka naozaj potrebuje FlareSolverr
+curl -s -o /dev/null -w '%{http_code}' 'https://example.com/' \
+  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+```
+Ak vráti 200, stránka nepotrebuje FlareSolverr.
+
+**Riešenie:**
+```bash
+docker exec n8n-postgres-1 psql -U n8n -d sentinel -c "
+-- Nájdi pravidlo podľa domény
+SELECT r.id, r.name, s.domain, r.captcha_interval_enforced
+FROM rules r JOIN sources s ON r.source_id = s.id
+WHERE s.domain LIKE '%example%';
+
+-- Reset CAPTCHA flag pre konkrétne pravidlo
+UPDATE rules
+SET captcha_interval_enforced = false,
+    schedule = original_schedule,
+    original_schedule = NULL
+WHERE id = 'RULE_ID_HERE';
+"
+```
 
 ---
 
