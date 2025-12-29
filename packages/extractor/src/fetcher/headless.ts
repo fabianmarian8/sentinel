@@ -440,6 +440,11 @@ const COOKIE_BANNER_SELECTORS = [
   '.cookies-info__button',
   '[data-testid="cookies-accept-all"]',
   '.btn-cookie-ok',
+  // Nike-specific
+  '[data-testid="modal-accept-button"]',
+  'button[aria-label="Accept All"]',
+  '.modal-actions-accept-btn',
+  'button.nds-btn.modal-actions-accept-btn',
 ];
 
 /**
@@ -461,6 +466,11 @@ const COOKIE_BANNER_CONTAINERS = [
   // Alza-specific
   '.cookies-info',
   '.cookies-dialog',
+  // Nike-specific
+  '[data-testid="privacy-modal"]',
+  '.privacy-modal',
+  '.modal-container[class*="privacy"]',
+  '[class*="consent-modal"]',
 ];
 
 export interface ElementScreenshotOptions {
