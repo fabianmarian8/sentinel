@@ -384,8 +384,10 @@ export class RunProcessor extends WorkerHost {
       );
 
       // Step 8: Anti-flap check
+      // Default to 2 consecutive observations to filter out glitch extractions
+      // (e.g., wrong element selected due to overlays, race conditions)
       const alertPolicy = rule.alertPolicy as unknown as AlertPolicy | null;
-      const requireConsecutive = alertPolicy?.requireConsecutive ?? 1;
+      const requireConsecutive = alertPolicy?.requireConsecutive ?? 2;
 
       const antiFlipResult = processAntiFlap(
         normalizedValue,
