@@ -249,10 +249,12 @@ export class RulesService {
           name: dto.name,
           ruleType: dto.ruleType,
           extraction: dto.extraction as any,
+          selectorFingerprint: dto.selectorFingerprint as any,
           normalization: dto.normalization as any,
           schedule: dto.schedule as any,
           alertPolicy: dto.alertPolicy as any,
           enabled: dto.enabled ?? true,
+          screenshotOnChange: dto.screenshotOnChange ?? false,
           nextRunAt,
         },
         include: {
@@ -290,6 +292,7 @@ export class RulesService {
       name: result.rule.name,
       ruleType: result.rule.ruleType,
       extraction: result.rule.extraction,
+      selectorFingerprint: result.rule.selectorFingerprint,
       normalization: result.rule.normalization,
       schedule: result.rule.schedule,
       alertPolicy: result.rule.alertPolicy,
@@ -363,6 +366,7 @@ export class RulesService {
       name: rule.name,
       ruleType: rule.ruleType,
       extraction: rule.extraction,
+      selectorFingerprint: rule.selectorFingerprint,
       normalization: rule.normalization,
       schedule: rule.schedule,
       alertPolicy: rule.alertPolicy,
@@ -425,18 +429,21 @@ export class RulesService {
 
       if (dto.name !== undefined) updateData.name = dto.name;
       if (dto.ruleType !== undefined) updateData.ruleType = dto.ruleType;
-      if (dto.extraction !== undefined) updateData.extraction = dto.extraction;
+      if (dto.extraction !== undefined)
+        updateData.extraction = dto.extraction as any;
       if (dto.normalization !== undefined)
-        updateData.normalization = dto.normalization;
+        updateData.normalization = dto.normalization as any;
       if (dto.alertPolicy !== undefined)
-        updateData.alertPolicy = dto.alertPolicy;
+        updateData.alertPolicy = dto.alertPolicy as any;
       if (dto.enabled !== undefined) updateData.enabled = dto.enabled;
       if (dto.screenshotOnChange !== undefined)
         updateData.screenshotOnChange = dto.screenshotOnChange;
+      if (dto.selectorFingerprint !== undefined)
+        updateData.selectorFingerprint = dto.selectorFingerprint as any;
 
       // If schedule is being updated, recalculate nextRunAt
       if (dto.schedule !== undefined) {
-        updateData.schedule = dto.schedule;
+        updateData.schedule = dto.schedule as any;
         updateData.nextRunAt = this.calculateNextRunAt(dto.schedule);
       }
 
@@ -475,6 +482,7 @@ export class RulesService {
         name: rule.name,
         ruleType: rule.ruleType,
         extraction: rule.extraction,
+        selectorFingerprint: rule.selectorFingerprint,
         normalization: rule.normalization,
         schedule: rule.schedule,
         alertPolicy: rule.alertPolicy,

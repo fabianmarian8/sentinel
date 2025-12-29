@@ -97,4 +97,21 @@ export class CreateRuleDto {
   @IsBoolean()
   @IsOptional()
   screenshotOnChange?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Selector fingerprint for auto-healing (alternativeSelectors, textAnchor, parentContext)',
+    example: {
+      selector: '.price-current',
+      alternativeSelectors: ['[data-price]', '.product-price'],
+      textAnchor: '$99.99',
+    },
+  })
+  @IsOptional()
+  selectorFingerprint?: {
+    selector: string;
+    alternativeSelectors?: string[];
+    textAnchor?: string;
+    parentContext?: { tag: string; classes: string[]; id?: string }[];
+    attributes?: Record<string, string>;
+  };
 }

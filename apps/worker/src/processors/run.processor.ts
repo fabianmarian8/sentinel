@@ -249,7 +249,74 @@ export class RunProcessor extends WorkerHost {
       }
 
       // Step 6: Extract value (extraction already defined above for screenshotSelector)
-      const extractResult = extract(fetchResult.html!, extraction);
+      let extractResult = extract(fetchResult.html!, extraction);
+      let selectorHealed = false;
+      let healedSelector: string | null = null;
+
+      // Auto-healing: if extraction failed, try alternative selectors from fingerprint
+      if (!extractResult.success && rule.selectorFingerprint) {
+        const fingerprint = rule.selectorFingerprint as {
+          alternativeSelectors?: string[];
+          textAnchor?: string;
+        };
+
+        if (fingerprint.alternativeSelectors && fingerprint.alternativeSelectors.length > 0) {
+          this.logger.log(
+            `[Job ${job.id}] Primary selector failed, trying ${fingerprint.alternativeSelectors.length} alternative selectors`,
+          );
+
+          for (const altSelector of fingerprint.alternativeSelectors) {
+            // Skip XPath selectors for now (start with xpath:)
+            if (altSelector.startsWith('xpath:')) continue;
+
+            const altConfig = { ...extraction, selector: altSelector };
+            const altResult = extract(fetchResult.html!, altConfig);
+
+            if (altResult.success) {
+              // Validate with textAnchor if available
+              if (fingerprint.textAnchor && altResult.value) {
+                const normalizedValue = altResult.value.toLowerCase().replace(/\s+/g, ' ').trim();
+                const normalizedAnchor = fingerprint.textAnchor.toLowerCase().replace(/\s+/g, ' ').trim().substring(0, 20);
+                if (!normalizedValue.includes(normalizedAnchor)) {
+                  this.logger.debug(
+                    `[Job ${job.id}] Alternative selector ${altSelector} found value but textAnchor mismatch, skipping`,
+                  );
+                  continue;
+                }
+              }
+
+              extractResult = altResult;
+              selectorHealed = true;
+              healedSelector = altSelector;
+
+              this.logger.log(
+                `[Job ${job.id}] Auto-healed! New selector: ${altSelector}`,
+              );
+
+              // Update rule extraction config with new working selector
+              try {
+                const newExtraction = { ...extraction, selector: altSelector };
+                await this.prisma.rule.update({
+                  where: { id: ruleId },
+                  data: {
+                    extraction: newExtraction as any,
+                    lastErrorCode: null,
+                    lastErrorAt: null,
+                  },
+                });
+                this.logger.log(
+                  `[Job ${job.id}] Rule ${ruleId} extraction config auto-healed to: ${altSelector}`,
+                );
+              } catch (updateError) {
+                this.logger.warn(
+                  `[Job ${job.id}] Failed to persist auto-healed selector: ${updateError}`,
+                );
+              }
+              break;
+            }
+          }
+        }
+      }
 
       if (!extractResult.success) {
         await this.prisma.run.update({
@@ -270,6 +337,15 @@ export class RunProcessor extends WorkerHost {
           `[Job ${job.id}] Extraction failed: ${extractResult.error}`,
         );
         return { success: false, error: 'Extraction failed' };
+      }
+
+      // If healed, update health score with fallback indicator
+      if (selectorHealed) {
+        await this.healthScore.updateHealthScore({
+          ruleId,
+          errorCode: null,
+          usedFallback: true,
+        });
       }
 
       // Step 7: Normalize value

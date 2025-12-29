@@ -160,6 +160,7 @@ model Rule {
   name               String
   ruleType           RuleType  @map("rule_type")
   extraction         Json      // selector, jsonPath, regex config
+  selectorFingerprint Json?    @map("selector_fingerprint") // auto-healing: alternativeSelectors, textAnchor, parentContext
   normalization      Json?     // transform, unit conversion config
   schedule           Json      // cron, interval config
   alertPolicy        Json?     @map("alert_policy") // thresholds, conditions

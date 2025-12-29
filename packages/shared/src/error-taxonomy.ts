@@ -165,6 +165,13 @@ export const ERROR_TAXONOMY: Record<ErrorCode, ErrorInfo> = {
     severity: 'error',
     retryable: false,
   },
+  SELECTOR_HEALED: {
+    title: 'Selector Auto-Healed',
+    description: 'The original selector failed but an alternative was found automatically.',
+    recommendation: 'No action needed. The rule is using a backup selector.',
+    severity: 'info',
+    retryable: false,
+  },
   JSON_PATH_BROKEN: {
     title: 'Invalid JSON Path',
     description: 'The JSON path expression is invalid.',

@@ -727,6 +727,7 @@ async function createRule(event: Event): Promise<void> {
           selector: pendingElement.selector,
           attribute: 'text',
         },
+        selectorFingerprint: pendingElement.fingerprint,
         schedule: {
           intervalSeconds,
           jitterSeconds,
