@@ -188,6 +188,15 @@ export class AlertProcessor extends WorkerHost {
       case 'webhook':
         return await this.sendWebhookNotification(channel, alert);
 
+      case 'discord':
+        return await this.sendDiscordNotification(channel, alert);
+
+      case 'slack_oauth':
+        return await this.sendSlackOAuthNotification(channel, alert);
+
+      case 'push':
+        return await this.sendPushNotification(channel, alert);
+
       default:
         return {
           success: false,
@@ -560,6 +569,194 @@ export class AlertProcessor extends WorkerHost {
         success: result.success,
         error: result.error,
       };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Send Discord notification via webhook
+   */
+  private async sendDiscordNotification(
+    channel: any,
+    alert: any,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const decryptedConfig = this.decrypt(channel.configEncrypted);
+      const config = JSON.parse(decryptedConfig);
+      const webhookUrl = config.webhookUrl;
+
+      if (!webhookUrl) {
+        return { success: false, error: 'Discord webhook URL not configured' };
+      }
+
+      const colorMap: Record<string, number> = {
+        low: 0x3b82f6,
+        medium: 0xf59e0b,
+        high: 0xdc2626,
+        critical: 0x7c3aed,
+      };
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: 'Sentinel',
+          embeds: [{
+            title: alert.title,
+            description: alert.body,
+            color: colorMap[alert.severity] || 0x3b82f6,
+            url: alert.rule.source.url,
+            fields: [
+              { name: 'Rule', value: alert.rule.name, inline: true },
+              { name: 'Severity', value: alert.severity.toUpperCase(), inline: true },
+            ],
+            timestamp: alert.triggeredAt,
+            footer: { text: 'Sentinel Alerts' },
+          }],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `Discord API error: ${response.status} - ${errorText}` };
+      }
+
+      this.logger.log(`Discord notification sent to webhook`);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Send Slack notification via OAuth (chat.postMessage API)
+   */
+  private async sendSlackOAuthNotification(
+    channel: any,
+    alert: any,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const decryptedConfig = this.decrypt(channel.configEncrypted);
+      const config = JSON.parse(decryptedConfig);
+
+      if (!config.accessToken || !config.channelId) {
+        return { success: false, error: 'Slack OAuth config incomplete' };
+      }
+
+      const colorMap: Record<string, string> = {
+        low: '#3b82f6',
+        medium: '#f59e0b',
+        high: '#dc2626',
+        critical: '#7c3aed',
+      };
+
+      const response = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel: config.channelId,
+          text: `[${alert.severity.toUpperCase()}] ${alert.title}`,
+          attachments: [{
+            color: colorMap[alert.severity] || '#3b82f6',
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: `*${alert.title}*\n${alert.body}`,
+                },
+              },
+              {
+                type: 'context',
+                elements: [
+                  { type: 'mrkdwn', text: `*Rule:* ${alert.rule.name}` },
+                  { type: 'mrkdwn', text: `*Severity:* ${alert.severity}` },
+                ],
+              },
+              {
+                type: 'actions',
+                elements: [{
+                  type: 'button',
+                  text: { type: 'plain_text', text: 'View Source' },
+                  url: alert.rule.source.url,
+                }],
+              },
+            ],
+          }],
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.ok) {
+        return { success: false, error: `Slack API error: ${result.error}` };
+      }
+
+      this.logger.log(`Slack notification sent to channel ${config.channelName}`);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Send push notification via OneSignal
+   */
+  private async sendPushNotification(
+    channel: any,
+    alert: any,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const decryptedConfig = this.decrypt(channel.configEncrypted);
+      const config = JSON.parse(decryptedConfig);
+
+      const oneSignalAppId = process.env.ONESIGNAL_APP_ID;
+      const oneSignalApiKey = process.env.ONESIGNAL_API_KEY;
+
+      if (!oneSignalAppId || !oneSignalApiKey) {
+        return { success: false, error: 'OneSignal not configured on server' };
+      }
+
+      if (!config.playerId) {
+        return { success: false, error: 'Push player ID not configured' };
+      }
+
+      const response = await fetch('https://onesignal.com/api/v1/notifications', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${oneSignalApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          app_id: oneSignalAppId,
+          include_player_ids: [config.playerId],
+          headings: { en: `[${alert.severity.toUpperCase()}] ${alert.rule.name}` },
+          contents: { en: alert.title },
+          url: alert.rule.source.url,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `OneSignal API error: ${response.status} - ${errorText}` };
+      }
+
+      const result = await response.json();
+      this.logger.log(`Push notification sent, id: ${result.id}`);
+      return { success: true };
     } catch (error) {
       return {
         success: false,
