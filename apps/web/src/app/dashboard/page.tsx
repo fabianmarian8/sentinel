@@ -102,6 +102,48 @@ export default function DashboardPage() {
     return true;
   });
 
+  const handlePauseRule = async (id: string) => {
+    try {
+      await api.pauseRule(id);
+      // Update local state
+      setRules((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, enabled: false } : r))
+      );
+    } catch (err) {
+      console.error('Failed to pause rule:', err);
+      alert('Nepodarilo sa pozastaviť pravidlo');
+    }
+  };
+
+  const handleResumeRule = async (id: string) => {
+    try {
+      await api.resumeRule(id);
+      // Update local state
+      setRules((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, enabled: true } : r))
+      );
+    } catch (err) {
+      console.error('Failed to resume rule:', err);
+      alert('Nepodarilo sa spustiť pravidlo');
+    }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    try {
+      await api.deleteRule(id);
+      // Remove from local state
+      setRules((prev) => prev.filter((r) => r.id !== id));
+      // Update health summary
+      setHealthSummary((prev) => ({
+        ...prev,
+        totalRules: prev.totalRules - 1,
+      }));
+    } catch (err) {
+      console.error('Failed to delete rule:', err);
+      alert('Nepodarilo sa vymazať pravidlo');
+    }
+  };
+
   // Show loading while auth is checking
   if (authLoading) {
     return (
@@ -266,7 +308,13 @@ export default function DashboardPage() {
         {/* Rules Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRules.map((rule) => (
-            <RuleCard key={rule.id} rule={rule} />
+            <RuleCard
+              key={rule.id}
+              rule={rule}
+              onPause={handlePauseRule}
+              onResume={handleResumeRule}
+              onDelete={handleDeleteRule}
+            />
           ))}
         </div>
 
