@@ -1,22 +1,24 @@
 'use client';
 
 interface HealthBadgeProps {
-  score: number;
+  score: number | null;
   size?: 'sm' | 'md' | 'lg';
   showLabel?: boolean;
 }
 
 export function HealthBadge({ score, size = 'md', showLabel = true }: HealthBadgeProps) {
-  const getHealthColor = (score: number) => {
-    if (score >= 80) return 'bg-green-100 text-green-800 border-green-200';
-    if (score >= 50) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+  const actualScore = score ?? 0;
+
+  const getHealthColor = (s: number) => {
+    if (s >= 80) return 'bg-green-100 text-green-800 border-green-200';
+    if (s >= 50) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     return 'bg-red-100 text-red-800 border-red-200';
   };
 
-  const getHealthLabel = (score: number) => {
-    if (score >= 80) return 'Healthy';
-    if (score >= 50) return 'Warning';
-    return 'Critical';
+  const getHealthLabel = (s: number) => {
+    if (s >= 80) return 'Zdravé';
+    if (s >= 50) return 'Varovanie';
+    return 'Kritické';
   };
 
   const sizeClasses = {
@@ -27,11 +29,11 @@ export function HealthBadge({ score, size = 'md', showLabel = true }: HealthBadg
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border font-medium ${getHealthColor(score)} ${sizeClasses[size]}`}
+      className={`inline-flex items-center rounded-full border font-medium ${getHealthColor(actualScore)} ${sizeClasses[size]}`}
     >
-      <span className="font-bold">{Math.round(score)}</span>
+      <span className="font-bold">{Math.round(actualScore)}</span>
       {showLabel && (
-        <span className="ml-1 font-normal">({getHealthLabel(score)})</span>
+        <span className="ml-1 font-normal">({getHealthLabel(actualScore)})</span>
       )}
     </span>
   );

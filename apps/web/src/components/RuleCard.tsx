@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { HealthBadge } from './HealthBadge';
+import { getErrorInfo } from '@sentinel/shared';
 
 interface RuleCardProps {
   rule: {
@@ -9,7 +10,7 @@ interface RuleCardProps {
     name: string;
     ruleType: string;
     enabled: boolean;
-    healthScore: number;
+    healthScore: number | null;
     lastErrorCode: string | null;
     lastErrorAt: string | null;
     nextRunAt: string | null;
@@ -17,10 +18,10 @@ interface RuleCardProps {
       url: string;
       domain: string;
     };
-    currentState: {
+    currentState?: {
       lastStable: any;
     } | null;
-    observationCount: number;
+    observationCount?: number;
     captchaIntervalEnforced?: boolean;
     originalSchedule?: { intervalSeconds?: number } | null;
   };
@@ -111,11 +112,21 @@ export function RuleCard({ rule }: RuleCardProps) {
           </div>
         </div>
 
-        {rule.lastErrorCode && (
-          <div className="mt-3 p-2 bg-red-50 rounded text-sm text-red-700">
-            Last error: {rule.lastErrorCode} ({formatTimeAgo(rule.lastErrorAt)})
-          </div>
-        )}
+        {rule.lastErrorCode && (() => {
+          const errorInfo = getErrorInfo(rule.lastErrorCode);
+          return (
+            <div className={`mt-3 p-2 rounded text-sm ${
+              errorInfo?.severity === 'critical' ? 'bg-red-100 text-red-800' :
+              errorInfo?.severity === 'error' ? 'bg-red-50 text-red-700' :
+              errorInfo?.severity === 'warning' ? 'bg-amber-50 text-amber-700' :
+              'bg-blue-50 text-blue-700'
+            }`}>
+              <div className="font-medium">{errorInfo?.title || rule.lastErrorCode}</div>
+              <div className="text-xs mt-1 opacity-80">{errorInfo?.recommendation}</div>
+              <div className="text-xs mt-1 opacity-60">{formatTimeAgo(rule.lastErrorAt)}</div>
+            </div>
+          );
+        })()}
 
         {rule.captchaIntervalEnforced && (
           <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center gap-2">

@@ -95,6 +95,7 @@ export interface Rule {
   source: Source;
   currentState?: RuleState | null;
   latestObservations?: Observation[];
+  observationCount?: number;
 }
 
 export interface Observation {

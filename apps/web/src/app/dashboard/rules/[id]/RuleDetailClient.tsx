@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { HealthBadge } from '@/components/HealthBadge';
 import api, { Rule, TestRuleResult } from '@/lib/api';
+import { getErrorInfo } from '@sentinel/shared';
 
 export default function RuleDetailClient() {
   const params = useParams();
@@ -57,6 +58,25 @@ export default function RuleDetailClient() {
     if (diffMins < 60) return `${diffMins} minutes ago`;
     if (diffHours < 24) return `${diffHours} hours ago`;
     return `${diffDays} days ago`;
+  };
+
+  const formatCurrentValue = (value: unknown): string => {
+    if (value === null || value === undefined) return 'Žiadne dáta';
+    if (typeof value === 'object') {
+      const v = value as Record<string, unknown>;
+      // Price/Number: { value: number }
+      if ('value' in v && typeof v.value === 'number') return String(v.value);
+      // Legacy: { amount: number }
+      if ('amount' in v) return String(v.amount);
+      // Availability: { inStock: boolean }
+      if ('inStock' in v) return v.inStock ? 'Na sklade' : 'Nedostupné';
+      // Text: { snippet: string }
+      if ('snippet' in v) return String(v.snippet);
+      // Raw value
+      if ('raw' in v) return String(v.raw);
+      return JSON.stringify(v);
+    }
+    return String(value);
   };
 
   const handleTest = async () => {
@@ -296,7 +316,7 @@ export default function RuleDetailClient() {
           <div className="lg:col-span-2 bg-white rounded-lg shadow border border-gray-200 p-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Aktuálna hodnota</h2>
             <div className="text-4xl font-bold text-gray-900">
-              {rule.currentState?.lastStable?.raw || 'Žiadne dáta'}
+              {formatCurrentValue(rule.currentState?.lastStable)}
             </div>
             <p className="mt-2 text-sm text-gray-500">
               Naposledy aktualizované: {formatTimeAgo(rule.currentState?.updatedAt ?? null)}
@@ -423,7 +443,7 @@ export default function RuleDetailClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {rule.latestObservations.map((obs) => (
+                {(rule.latestObservations || []).map((obs) => (
                   <tr key={obs.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {formatTimeAgo(obs.createdAt)}
@@ -432,11 +452,22 @@ export default function RuleDetailClient() {
                       {obs.extractedRaw}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {obs.run.errorCode ? (
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">
-                          {obs.run.errorCode}
-                        </span>
-                      ) : (
+                      {obs.run.errorCode ? (() => {
+                        const errInfo = getErrorInfo(obs.run.errorCode);
+                        return (
+                          <span
+                            className={`px-2 py-1 rounded text-xs cursor-help ${
+                              errInfo?.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                              errInfo?.severity === 'error' ? 'bg-red-100 text-red-700' :
+                              errInfo?.severity === 'warning' ? 'bg-amber-100 text-amber-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}
+                            title={`${errInfo?.description || ''}\n\n💡 ${errInfo?.recommendation || ''}`}
+                          >
+                            {errInfo?.title || obs.run.errorCode}
+                          </span>
+                        );
+                      })() : (
                         <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
                           HTTP {obs.run.httpStatus}
                         </span>

@@ -5,26 +5,7 @@ import Link from 'next/link';
 import { RuleCard } from '@/components/RuleCard';
 import { HealthBadge } from '@/components/HealthBadge';
 import { useAuth } from '@/contexts/AuthContext';
-import api from '@/lib/api';
-
-interface Rule {
-  id: string;
-  name: string;
-  ruleType: string;
-  enabled: boolean;
-  healthScore: number;
-  lastErrorCode: string | null;
-  lastErrorAt: string | null;
-  nextRunAt: string | null;
-  source: {
-    url: string;
-    domain: string;
-  };
-  currentState: {
-    lastStable: unknown;
-  } | null;
-  observationCount: number;
-}
+import api, { Rule } from '@/lib/api';
 
 interface HealthSummary {
   totalRules: number;
@@ -79,11 +60,11 @@ export default function DashboardPage() {
 
         // Calculate health summary from rules
         const total = rulesData.length;
-        const healthy = rulesData.filter((r: Rule) => r.healthScore >= 80).length;
-        const warning = rulesData.filter((r: Rule) => r.healthScore >= 50 && r.healthScore < 80).length;
-        const critical = rulesData.filter((r: Rule) => r.healthScore < 50).length;
+        const healthy = rulesData.filter((r: Rule) => (r.healthScore ?? 0) >= 80).length;
+        const warning = rulesData.filter((r: Rule) => (r.healthScore ?? 0) >= 50 && (r.healthScore ?? 0) < 80).length;
+        const critical = rulesData.filter((r: Rule) => (r.healthScore ?? 0) < 50).length;
         const avgScore = total > 0
-          ? Math.round(rulesData.reduce((sum: number, r: Rule) => sum + r.healthScore, 0) / total)
+          ? Math.round(rulesData.reduce((sum: number, r: Rule) => sum + (r.healthScore ?? 0), 0) / total)
           : 0;
 
         setHealthSummary({
@@ -113,10 +94,11 @@ export default function DashboardPage() {
   };
 
   const filteredRules = rules.filter((rule) => {
+    const score = rule.healthScore ?? 0;
     if (filter === 'all') return true;
-    if (filter === 'healthy') return rule.healthScore >= 80;
-    if (filter === 'warning') return rule.healthScore >= 50 && rule.healthScore < 80;
-    if (filter === 'critical') return rule.healthScore < 50;
+    if (filter === 'healthy') return score >= 80;
+    if (filter === 'warning') return score >= 50 && score < 80;
+    if (filter === 'critical') return score < 50;
     return true;
   });
 
