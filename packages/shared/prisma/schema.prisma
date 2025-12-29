@@ -193,6 +193,7 @@ model RuleState {
   lastStable     Json?    @map("last_stable") // last confirmed stable value
   candidate      Json?    // potential new value
   candidateCount Int      @default(0) @map("candidate_count") // confirmation counter
+  version        Int      @default(0) // optimistic locking version
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
 
   rule           Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)

@@ -1,18 +1,22 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '../config/config.service';
 import { CreateChannelDto, ChannelType } from './dto/create-channel.dto';
 import { UpdateChannelDto } from './dto/update-channel.dto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'sentinel-default-encryption-key-32';
 const ALGORITHM = 'aes-256-gcm';
 
 @Injectable()
 export class NotificationChannelsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   private encrypt(text: string): string {
-    const key = Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32));
+    const encryptionKey = this.config.encryptionKey;
+    const key = Buffer.from(encryptionKey.slice(0, 32));
     const iv = randomBytes(16);
     const cipher = createCipheriv(ALGORITHM, key, iv);
 
@@ -24,7 +28,8 @@ export class NotificationChannelsService {
   }
 
   private decrypt(encryptedText: string): string {
-    const key = Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32));
+    const encryptionKey = this.config.encryptionKey;
+    const key = Buffer.from(encryptionKey.slice(0, 32));
     const parts = encryptedText.split(':');
     if (parts.length !== 3) {
       throw new BadRequestException('Invalid encrypted data format');

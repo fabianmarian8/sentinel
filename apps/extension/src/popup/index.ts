@@ -728,34 +728,41 @@ async function createRule(event: Event): Promise<void> {
     // Cap jitter at 300 seconds max
     const jitterSeconds = Math.min(Math.floor(intervalSeconds * 0.1), 300);
 
+    const rulePayload: Record<string, unknown> = {
+      name: ruleName,
+      ruleType,
+      sourceId,
+      extraction: {
+        method: 'css',
+        selector: pendingElement.selector,
+        attribute: 'text',
+      },
+      schedule: {
+        intervalSeconds,
+        jitterSeconds,
+      },
+      normalization: {
+        type: ruleType === 'price' ? 'price' : ruleType === 'number' ? 'number' : 'text',
+      },
+      alertPolicy: {
+        conditions: [
+          {
+            type: 'value_changed',
+            severity: 'medium',
+          },
+        ],
+      },
+    };
+
+    // TEMPORARILY DISABLED - selectorFingerprint causes validation errors
+    // TODO: Fix DTO validation and re-enable
+    // if (pendingElement.fingerprint?.selector) {
+    //   rulePayload.selectorFingerprint = pendingElement.fingerprint;
+    // }
+
     await apiRequest('/rules', {
       method: 'POST',
-      body: JSON.stringify({
-        name: ruleName,
-        ruleType,
-        sourceId,
-        extraction: {
-          method: 'css',
-          selector: pendingElement.selector,
-          attribute: 'text',
-        },
-        selectorFingerprint: pendingElement.fingerprint,
-        schedule: {
-          intervalSeconds,
-          jitterSeconds,
-        },
-        normalization: {
-          type: ruleType === 'price' ? 'price' : ruleType === 'number' ? 'number' : 'text',
-        },
-        alertPolicy: {
-          conditions: [
-            {
-              type: 'value_changed',
-              severity: 'medium',
-            },
-          ],
-        },
-      }),
+      body: JSON.stringify(rulePayload),
     });
 
     showToast('Pravidlo vytvorené!', 'success');

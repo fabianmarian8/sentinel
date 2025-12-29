@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateSourceDto } from './dto/create-source.dto';
 import { UpdateSourceDto } from './dto/update-source.dto';
 import { normalizeUrl } from './utils/url-normalizer';
+import { validateUrl } from './utils/url-validator';
 
 @Injectable()
 export class SourcesService {
@@ -150,6 +151,14 @@ export class SourcesService {
   async create(userId: string, dto: CreateSourceDto) {
     // Verify workspace access
     await this.verifyWorkspaceAccess(dto.workspaceId, userId);
+
+    // Validate URL for SSRF protection
+    const urlValidation = await validateUrl(dto.url);
+    if (!urlValidation.valid) {
+      throw new BadRequestException(
+        `URL validation failed: ${urlValidation.reason}`,
+      );
+    }
 
     // Verify fetch profile exists and belongs to workspace (if provided)
     if (dto.fetchProfileId) {
@@ -325,6 +334,14 @@ export class SourcesService {
 
     // If URL is being updated, normalize it
     if (dto.url && dto.url !== currentSource.url) {
+      // Validate URL for SSRF protection
+      const urlValidation = await validateUrl(dto.url);
+      if (!urlValidation.valid) {
+        throw new BadRequestException(
+          `URL validation failed: ${urlValidation.reason}`,
+        );
+      }
+
       const { canonical, domain } = normalizeUrl(dto.url);
 
       // Check for duplicate URL in workspace

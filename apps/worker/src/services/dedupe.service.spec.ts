@@ -1,17 +1,39 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DedupeService } from './dedupe.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkerConfigService } from '../config/config.service';
 import { createHash } from 'crypto';
+
+// Mock ioredis
+jest.mock('ioredis', () => {
+  return jest.fn().mockImplementation(() => ({
+    set: jest.fn(),
+    ttl: jest.fn(),
+    on: jest.fn(),
+    quit: jest.fn(),
+  }));
+});
 
 describe('DedupeService', () => {
   let service: DedupeService;
   let mockPrisma: any;
+  let mockRedis: any;
+  let mockConfigService: any;
 
   beforeEach(async () => {
     mockPrisma = {
       alert: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+      },
+    };
+
+    mockConfigService = {
+      redis: {
+        host: 'localhost',
+        port: 6379,
+        password: undefined,
+        db: 0,
       },
     };
 
@@ -22,10 +44,16 @@ describe('DedupeService', () => {
           provide: PrismaService,
           useValue: mockPrisma,
         },
+        {
+          provide: WorkerConfigService,
+          useValue: mockConfigService,
+        },
       ],
     }).compile();
 
     service = module.get<DedupeService>(DedupeService);
+    // Get the mocked Redis instance
+    mockRedis = (service as any).redis;
   });
 
   afterEach(() => {
@@ -247,16 +275,15 @@ describe('DedupeService', () => {
       });
 
       it('should allow alert if cooldown is disabled (0 seconds)', async () => {
-        mockPrisma.alert.findFirst.mockResolvedValue(null);
-
         const result = await service.shouldCreateAlert(ruleId, dedupeKey, 0);
 
         expect(result.allowed).toBe(true);
-        expect(mockPrisma.alert.findFirst).not.toHaveBeenCalled();
+        expect(mockRedis.set).not.toHaveBeenCalled();
       });
 
-      it('should allow alert if no recent alerts within cooldown', async () => {
-        mockPrisma.alert.findFirst.mockResolvedValue(null);
+      it('should allow alert if cooldown acquired (Redis SETNX success)', async () => {
+        // SETNX returns 'OK' when key was set (cooldown acquired)
+        mockRedis.set.mockResolvedValue('OK');
 
         const result = await service.shouldCreateAlert(
           ruleId,
@@ -265,22 +292,19 @@ describe('DedupeService', () => {
         );
 
         expect(result.allowed).toBe(true);
-        expect(mockPrisma.alert.findFirst).toHaveBeenCalledWith({
-          where: {
-            ruleId,
-            triggeredAt: { gte: expect.any(Date) },
-          },
-          orderBy: { triggeredAt: 'desc' },
-          select: { id: true, triggeredAt: true },
-        });
+        expect(mockRedis.set).toHaveBeenCalledWith(
+          `cooldown:${ruleId}`,
+          expect.any(String),
+          'EX',
+          3600,
+          'NX',
+        );
       });
 
-      it('should block alert if within cooldown period', async () => {
-        const recentAlert = {
-          id: 'alert-456',
-          triggeredAt: new Date(Date.now() - 1800000), // 30 minutes ago
-        };
-        mockPrisma.alert.findFirst.mockResolvedValue(recentAlert);
+      it('should block alert if cooldown active (Redis SETNX fails)', async () => {
+        // SETNX returns null when key already exists (cooldown active)
+        mockRedis.set.mockResolvedValue(null);
+        mockRedis.ttl.mockResolvedValue(1800); // 30 minutes remaining
 
         const cooldownSeconds = 3600; // 1 hour
         const result = await service.shouldCreateAlert(
@@ -291,74 +315,44 @@ describe('DedupeService', () => {
 
         expect(result.allowed).toBe(false);
         expect(result.reason).toContain('Cooldown active');
-        expect(result.reason).toMatch(/\d+s remaining/);
-        expect(result.reason).toContain('alert-456');
+        expect(result.reason).toContain('1800s remaining');
+        expect(mockRedis.ttl).toHaveBeenCalledWith(`cooldown:${ruleId}`);
       });
 
-      it('should calculate remaining cooldown correctly', async () => {
-        const recentAlert = {
-          id: 'alert-456',
-          triggeredAt: new Date(Date.now() - 60000), // 1 minute ago
-        };
-        mockPrisma.alert.findFirst.mockResolvedValue(recentAlert);
+      it('should use correct Redis key format', async () => {
+        mockRedis.set.mockResolvedValue('OK');
 
-        const cooldownSeconds = 300; // 5 minutes
-        const result = await service.shouldCreateAlert(
-          ruleId,
-          dedupeKey,
-          cooldownSeconds,
+        await service.shouldCreateAlert(ruleId, dedupeKey, 300);
+
+        expect(mockRedis.set).toHaveBeenCalledWith(
+          'cooldown:rule-123',
+          expect.any(String),
+          'EX',
+          300,
+          'NX',
         );
-
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toMatch(/\(2[0-9][0-9]s remaining/); // ~240s
       });
 
-      it('should allow alert if cooldown period has passed', async () => {
-        const oldAlert = {
-          id: 'alert-456',
-          triggeredAt: new Date(Date.now() - 7200000), // 2 hours ago
-        };
-        mockPrisma.alert.findFirst.mockResolvedValue(oldAlert);
+      it('should set correct TTL in Redis', async () => {
+        mockRedis.set.mockResolvedValue('OK');
 
-        const cooldownSeconds = 3600; // 1 hour
-        const result = await service.shouldCreateAlert(
-          ruleId,
-          dedupeKey,
-          cooldownSeconds,
-        );
-
-        // Old alert exists but outside cooldown window
-        // Should query but not find anything due to WHERE clause
-        // Let's adjust the mock to return null for consistency
-        mockPrisma.alert.findFirst.mockResolvedValue(null);
-
-        const result2 = await service.shouldCreateAlert(
-          ruleId,
-          dedupeKey,
-          cooldownSeconds,
-        );
-
-        expect(result2.allowed).toBe(true);
-      });
-
-      it('should use correct cooldown window in query', async () => {
-        mockPrisma.alert.findFirst.mockResolvedValue(null);
-
-        const cooldownSeconds = 1800; // 30 minutes
-        const beforeCall = Date.now();
-
+        const cooldownSeconds = 1800;
         await service.shouldCreateAlert(ruleId, dedupeKey, cooldownSeconds);
 
-        const afterCall = Date.now();
-        const callArgs = mockPrisma.alert.findFirst.mock.calls[0][0];
-        const cooldownStart = callArgs.where.triggeredAt.gte.getTime();
+        const call = mockRedis.set.mock.calls[0];
+        expect(call[2]).toBe('EX'); // Expiry type
+        expect(call[3]).toBe(1800); // TTL in seconds
+        expect(call[4]).toBe('NX'); // Set if Not eXists
+      });
 
-        // Cooldown start should be approximately now - cooldownSeconds
-        const expectedStart = beforeCall - cooldownSeconds * 1000;
-        const tolerance = afterCall - beforeCall + 100; // Allow some tolerance
+      it('should fail open on Redis error', async () => {
+        // Simulate Redis error
+        mockRedis.set.mockRejectedValue(new Error('Redis connection failed'));
 
-        expect(cooldownStart).toBeGreaterThanOrEqual(expectedStart - tolerance);
-        expect(cooldownStart).toBeLessThanOrEqual(afterCall - cooldownSeconds * 1000);
+        const result = await service.shouldCreateAlert(ruleId, dedupeKey, 3600);
+
+        // Should allow alert on error (fail open)
+        expect(result.allowed).toBe(true);
       });
     });
 
@@ -373,17 +367,17 @@ describe('DedupeService', () => {
         await service.shouldCreateAlert(ruleId, dedupeKey, 3600);
 
         expect(mockPrisma.alert.findUnique).toHaveBeenCalled();
-        expect(mockPrisma.alert.findFirst).not.toHaveBeenCalled(); // Short-circuit
+        expect(mockRedis.set).not.toHaveBeenCalled(); // Short-circuit
       });
 
       it('should check cooldown only if dedupe key passes', async () => {
         mockPrisma.alert.findUnique.mockResolvedValue(null);
-        mockPrisma.alert.findFirst.mockResolvedValue(null);
+        mockRedis.set.mockResolvedValue('OK');
 
         await service.shouldCreateAlert(ruleId, dedupeKey, 3600);
 
         expect(mockPrisma.alert.findUnique).toHaveBeenCalled();
-        expect(mockPrisma.alert.findFirst).toHaveBeenCalled();
+        expect(mockRedis.set).toHaveBeenCalled();
       });
     });
   });

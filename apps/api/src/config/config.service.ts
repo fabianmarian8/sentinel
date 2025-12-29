@@ -60,4 +60,8 @@ export class ConfigService {
   get isTest(): boolean {
     return this.nodeEnv === 'test';
   }
+
+  get encryptionKey(): string {
+    return this.configService.get('ENCRYPTION_KEY', { infer: true });
+  }
 }

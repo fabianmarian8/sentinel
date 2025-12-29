@@ -80,4 +80,12 @@ export class WorkerConfigService {
       ),
     };
   }
+
+  /**
+   * Encryption key for sensitive data (notification channel configs)
+   * CRITICAL: Must be set in environment, no fallback allowed
+   */
+  get encryptionKey(): string {
+    return this.configService.get<string>('ENCRYPTION_KEY')!;
+  }
 }

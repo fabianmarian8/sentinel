@@ -27,6 +27,9 @@ export const envSchema = z.object({
   SCHEDULER_ENABLED: z.string().default('true'),
   SCHEDULER_TICK_INTERVAL: z.string().default('5000'),
   SCHEDULER_BATCH_SIZE: z.string().default('500'),
+
+  // Encryption
+  ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

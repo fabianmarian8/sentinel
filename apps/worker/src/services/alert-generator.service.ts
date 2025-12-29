@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash } from 'crypto';
 import type {
   AlertCondition,
   Severity,
@@ -163,35 +162,6 @@ export class AlertGeneratorService {
     lines.push(`Rule ID: ${rule.id}`);
 
     return lines.join('\n');
-  }
-
-  /**
-   * Generate deduplication key
-   *
-   * Creates a unique key to prevent duplicate alerts for the same change
-   */
-  generateDedupeKey(
-    ruleId: string,
-    triggeredConditions: AlertCondition[],
-    normalizedValue: any,
-  ): string {
-    // Create a deterministic hash based on:
-    // - rule ID
-    // - triggered condition types (sorted)
-    // - normalized value (stringified)
-    // - time window (5 minutes)
-
-    const conditionTypes = triggeredConditions
-      .map((c) => c.type)
-      .sort()
-      .join(',');
-
-    const valueString = JSON.stringify(normalizedValue);
-    const timeWindow = Math.floor(Date.now() / 300000); // 5-minute windows
-
-    const dedupString = `${ruleId}|${conditionTypes}|${valueString}|${timeWindow}`;
-
-    return createHash('sha256').update(dedupString).digest('hex').slice(0, 16);
   }
 
   /**

@@ -13,6 +13,7 @@ import { ExtractionConfigDto } from './extraction-config.dto';
 import { NormalizationConfigDto } from './normalization-config.dto';
 import { ScheduleConfigDto } from './schedule-config.dto';
 import { AlertPolicyDto } from './alert-policy.dto';
+import { SelectorFingerprintDto } from './selector-fingerprint.dto';
 
 export enum RuleType {
   PRICE = 'price',
@@ -100,18 +101,10 @@ export class CreateRuleDto {
 
   @ApiPropertyOptional({
     description: 'Selector fingerprint for auto-healing (alternativeSelectors, textAnchor, parentContext)',
-    example: {
-      selector: '.price-current',
-      alternativeSelectors: ['[data-price]', '.product-price'],
-      textAnchor: '$99.99',
-    },
+    type: SelectorFingerprintDto,
   })
+  @ValidateNested()
+  @Type(() => SelectorFingerprintDto)
   @IsOptional()
-  selectorFingerprint?: {
-    selector: string;
-    alternativeSelectors?: string[];
-    textAnchor?: string;
-    parentContext?: { tag: string; classes: string[]; id?: string }[];
-    attributes?: Record<string, string>;
-  };
+  selectorFingerprint?: SelectorFingerprintDto;
 }

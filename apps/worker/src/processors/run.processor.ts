@@ -265,9 +265,20 @@ export class RunProcessor extends WorkerHost {
             `[Job ${job.id}] Primary selector failed, trying ${fingerprint.alternativeSelectors.length} alternative selectors`,
           );
 
+          const primarySelector = extraction.selector || '';
+
           for (const altSelector of fingerprint.alternativeSelectors) {
             // Skip XPath selectors for now (start with xpath:)
             if (altSelector.startsWith('xpath:')) continue;
+
+            // Similarity threshold validation (70%)
+            const similarity = this.calculateSelectorSimilarity(primarySelector, altSelector);
+            if (similarity < 0.70) {
+              this.logger.debug(
+                `[Job ${job.id}] Alternative selector ${altSelector} has low similarity (${(similarity * 100).toFixed(0)}%), skipping`,
+              );
+              continue;
+            }
 
             const altConfig = { ...extraction, selector: altSelector };
             const altResult = extract(fetchResult.html!, altConfig);
@@ -290,7 +301,7 @@ export class RunProcessor extends WorkerHost {
               healedSelector = altSelector;
 
               this.logger.log(
-                `[Job ${job.id}] Auto-healed! New selector: ${altSelector}`,
+                `[Job ${job.id}] Auto-healed! New selector: ${altSelector} (similarity: ${(similarity * 100).toFixed(0)}%)`,
               );
 
               // Update rule extraction config with new working selector
@@ -366,21 +377,101 @@ export class RunProcessor extends WorkerHost {
         requireConsecutive,
       );
 
-      // Step 9: Update rule state
-      await this.prisma.ruleState.upsert({
-        where: { ruleId },
-        create: {
-          ruleId,
-          lastStable: antiFlipResult.newState.lastStable,
-          candidate: antiFlipResult.newState.candidate,
-          candidateCount: antiFlipResult.newState.candidateCount ?? 0,
-        },
-        update: {
-          lastStable: antiFlipResult.newState.lastStable,
-          candidate: antiFlipResult.newState.candidate,
-          candidateCount: antiFlipResult.newState.candidateCount ?? 0,
-        },
-      });
+      // Step 9: Update rule state with optimistic locking
+      const MAX_RETRIES = 3;
+      let retryCount = 0;
+      let stateUpdateSuccess = false;
+
+      while (!stateUpdateSuccess && retryCount < MAX_RETRIES) {
+        try {
+          // Fetch current state with version
+          const currentState = await this.prisma.ruleState.findUnique({
+            where: { ruleId },
+          });
+
+          if (currentState) {
+            // Update existing state with version check
+            const updateResult = await this.prisma.ruleState.updateMany({
+              where: {
+                ruleId,
+                version: currentState.version, // Optimistic lock check
+              },
+              data: {
+                lastStable: antiFlipResult.newState.lastStable,
+                candidate: antiFlipResult.newState.candidate,
+                candidateCount: antiFlipResult.newState.candidateCount ?? 0,
+                version: currentState.version + 1, // Increment version
+              },
+            });
+
+            if (updateResult.count === 1) {
+              stateUpdateSuccess = true;
+            } else {
+              // Version mismatch - another job updated the state
+              retryCount++;
+              this.logger.warn(
+                `[Job ${job.id}] State update version mismatch (retry ${retryCount}/${MAX_RETRIES})`,
+              );
+
+              if (retryCount < MAX_RETRIES) {
+                // Recalculate anti-flap with fresh state
+                const freshState = await this.prisma.ruleState.findUnique({
+                  where: { ruleId },
+                });
+                const antiFlipRetry = processAntiFlap(
+                  normalizedValue,
+                  freshState,
+                  requireConsecutive,
+                );
+                // Update antiFlipResult for next retry
+                Object.assign(antiFlipResult, antiFlipRetry);
+              }
+            }
+          } else {
+            // Create new state (race condition handled below)
+            await this.prisma.ruleState.create({
+              data: {
+                ruleId,
+                lastStable: antiFlipResult.newState.lastStable,
+                candidate: antiFlipResult.newState.candidate,
+                candidateCount: antiFlipResult.newState.candidateCount ?? 0,
+                version: 0,
+              },
+            });
+            stateUpdateSuccess = true;
+          }
+        } catch (error: any) {
+          // Handle unique constraint violation on create (race condition)
+          if (error?.code === 'P2002') {
+            retryCount++;
+            this.logger.warn(
+              `[Job ${job.id}] State create race condition detected (retry ${retryCount}/${MAX_RETRIES})`,
+            );
+
+            if (retryCount < MAX_RETRIES) {
+              // Recalculate with fresh state
+              const freshState = await this.prisma.ruleState.findUnique({
+                where: { ruleId },
+              });
+              const antiFlipRetry = processAntiFlap(
+                normalizedValue,
+                freshState,
+                requireConsecutive,
+              );
+              Object.assign(antiFlipResult, antiFlipRetry);
+            }
+          } else {
+            // Unexpected error - rethrow
+            throw error;
+          }
+        }
+      }
+
+      if (!stateUpdateSuccess) {
+        throw new Error(
+          `Failed to update rule state after ${MAX_RETRIES} retries due to concurrent updates`,
+        );
+      }
 
       // Step 10: Detect change kind
       const changeResult = detectChange(
@@ -568,18 +659,29 @@ export class RunProcessor extends WorkerHost {
 
     // Generate dedupe key with workspace timezone
     const conditionIds = triggeredConditions.map((c) => c.id);
+    const timezone = rule.source.workspace.timezone;
+
+    // Primary key for storing the new alert
     const dedupeKey = this.dedupeService.generateDedupeKey(
       rule.id,
       conditionIds,
       value,
-      rule.source.workspace.timezone,
+      timezone,
+    );
+
+    // All keys to check (includes overlap window for midnight boundary)
+    const dedupeKeysForCheck = this.dedupeService.generateDedupeKeysForCheck(
+      rule.id,
+      conditionIds,
+      value,
+      timezone,
     );
 
     // Check if alert should be created (deduplication + cooldown)
     const cooldownSeconds = alertPolicy.cooldownSeconds ?? 0;
     const { allowed, reason } = await this.dedupeService.shouldCreateAlert(
       rule.id,
-      dedupeKey,
+      dedupeKeysForCheck,
       cooldownSeconds,
     );
 
@@ -637,6 +739,64 @@ export class RunProcessor extends WorkerHost {
         `[Rule ${rule.id}] No notification channels configured, alert saved but not dispatched`,
       );
     }
+  }
+
+  /**
+   * Calculate similarity between two CSS selectors
+   *
+   * Uses a token-based approach:
+   * 1. Parse selectors into tokens (tag, class, id, attribute)
+   * 2. Compare token overlap using Jaccard similarity
+   *
+   * @param selector1 - Primary selector
+   * @param selector2 - Alternative selector
+   * @returns Similarity score between 0 and 1
+   */
+  private calculateSelectorSimilarity(selector1: string, selector2: string): number {
+    if (!selector1 || !selector2) return 0;
+    if (selector1 === selector2) return 1;
+
+    // Tokenize selectors into meaningful parts
+    const tokenize = (selector: string): Set<string> => {
+      const tokens = new Set<string>();
+
+      // Extract tag names (div, span, etc.)
+      const tagMatches = selector.match(/(?:^|[\s>+~])([a-z][a-z0-9]*)/gi);
+      if (tagMatches) {
+        tagMatches.forEach((t) => tokens.add(t.trim().toLowerCase()));
+      }
+
+      // Extract class names (.class-name)
+      const classMatches = selector.match(/\.[a-z_-][a-z0-9_-]*/gi);
+      if (classMatches) {
+        classMatches.forEach((c) => tokens.add(c.toLowerCase()));
+      }
+
+      // Extract IDs (#id-name)
+      const idMatches = selector.match(/#[a-z_-][a-z0-9_-]*/gi);
+      if (idMatches) {
+        idMatches.forEach((id) => tokens.add(id.toLowerCase()));
+      }
+
+      // Extract attribute selectors ([attr], [attr=value])
+      const attrMatches = selector.match(/\[[^\]]+\]/g);
+      if (attrMatches) {
+        attrMatches.forEach((attr) => tokens.add(attr.toLowerCase()));
+      }
+
+      return tokens;
+    };
+
+    const tokens1 = tokenize(selector1);
+    const tokens2 = tokenize(selector2);
+
+    if (tokens1.size === 0 || tokens2.size === 0) return 0;
+
+    // Calculate Jaccard similarity: intersection / union
+    const intersection = new Set([...tokens1].filter((t) => tokens2.has(t)));
+    const union = new Set([...tokens1, ...tokens2]);
+
+    return intersection.size / union.size;
   }
 
   /**

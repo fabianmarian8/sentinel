@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { createDecipheriv } from 'crypto';
 import { AlertDispatchPayload, QUEUE_NAMES } from '../types/jobs';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkerConfigService } from '../config/config.service';
 import {
   sendEmailAlert,
   sendSlackAlert,
@@ -18,7 +19,6 @@ import type {
   WebhookConfig,
 } from '@sentinel/notify';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'sentinel-default-encryption-key-32';
 const ALGORITHM = 'aes-256-gcm';
 
 /**
@@ -34,7 +34,10 @@ const ALGORITHM = 'aes-256-gcm';
 export class AlertProcessor extends WorkerHost {
   private readonly logger = new Logger(AlertProcessor.name);
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private config: WorkerConfigService,
+  ) {
     super();
   }
 
@@ -42,7 +45,8 @@ export class AlertProcessor extends WorkerHost {
    * Decrypt channel configuration
    */
   private decrypt(encryptedText: string): string {
-    const key = Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32));
+    const encryptionKey = this.config.encryptionKey;
+    const key = Buffer.from(encryptionKey.slice(0, 32));
     const parts = encryptedText.split(':');
     if (parts.length !== 3) {
       throw new Error('Invalid encrypted data format');
