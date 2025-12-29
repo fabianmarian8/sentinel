@@ -52,15 +52,25 @@ export class NotificationChannelsService {
       case ChannelType.EMAIL:
         if (!dto.emailConfig) throw new BadRequestException('emailConfig is required for email channel');
         return dto.emailConfig;
+      case ChannelType.SLACK_OAUTH:
+        if (!dto.slackOAuthConfig) throw new BadRequestException('slackOAuthConfig is required for slack_oauth channel');
+        return dto.slackOAuthConfig;
+      case ChannelType.DISCORD:
+        if (!dto.discordConfig) throw new BadRequestException('discordConfig is required for discord channel');
+        return dto.discordConfig;
+      case ChannelType.PUSH:
+        if (!dto.pushConfig) throw new BadRequestException('pushConfig is required for push channel');
+        return dto.pushConfig;
+      case ChannelType.WEBHOOK:
+        if (!dto.webhookConfig) throw new BadRequestException('webhookConfig is required for webhook channel');
+        return dto.webhookConfig;
+      // Legacy types
       case ChannelType.TELEGRAM:
         if (!dto.telegramConfig) throw new BadRequestException('telegramConfig is required for telegram channel');
         return dto.telegramConfig;
       case ChannelType.SLACK:
         if (!dto.slackConfig) throw new BadRequestException('slackConfig is required for slack channel');
         return dto.slackConfig;
-      case ChannelType.WEBHOOK:
-        if (!dto.webhookConfig) throw new BadRequestException('webhookConfig is required for webhook channel');
-        return dto.webhookConfig;
       default:
         throw new BadRequestException('Invalid channel type');
     }
@@ -136,6 +146,12 @@ export class NotificationChannelsService {
         // Mask sensitive data
         if (ch.type === 'email') {
           maskedConfig = { email: config.email };
+        } else if (ch.type === 'slack_oauth') {
+          maskedConfig = { channelName: config.channelName, teamName: config.teamName };
+        } else if (ch.type === 'discord') {
+          maskedConfig = { webhookUrl: config.webhookUrl?.replace(/\/webhooks\/\d+\/.*$/, '/webhooks/***') };
+        } else if (ch.type === 'push') {
+          maskedConfig = { deviceType: config.deviceType || 'web' };
         } else if (ch.type === 'telegram') {
           maskedConfig = { chatId: config.chatId };
         } else if (ch.type === 'slack') {

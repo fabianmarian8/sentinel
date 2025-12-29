@@ -4,9 +4,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export enum ChannelType {
   EMAIL = 'email',
+  SLACK_OAUTH = 'slack_oauth',
+  DISCORD = 'discord',
+  PUSH = 'push',
+  WEBHOOK = 'webhook',
+  // Legacy - kept for backwards compatibility, not shown in frontend
   TELEGRAM = 'telegram',
   SLACK = 'slack',
-  WEBHOOK = 'webhook',
 }
 
 class EmailConfig {
@@ -15,26 +19,40 @@ class EmailConfig {
   email!: string;
 }
 
-class TelegramConfig {
-  @ApiProperty({ example: '123456789' })
+class SlackOAuthConfig {
+  @ApiProperty({ description: 'OAuth access token from Slack' })
   @IsString()
-  chatId!: string;
+  accessToken!: string;
 
-  @ApiPropertyOptional({ description: 'Bot token (use default if not provided)' })
+  @ApiProperty({ description: 'Selected channel ID' })
+  @IsString()
+  channelId!: string;
+
+  @ApiProperty({ description: 'Channel name for display' })
+  @IsString()
+  channelName!: string;
+
+  @ApiPropertyOptional({ description: 'Team/workspace name' })
   @IsOptional()
   @IsString()
-  botToken?: string;
+  teamName?: string;
 }
 
-class SlackConfig {
-  @ApiProperty({ example: 'https://hooks.slack.com/services/...' })
+class DiscordConfig {
+  @ApiProperty({ example: 'https://discord.com/api/webhooks/...' })
   @IsUrl()
   webhookUrl!: string;
+}
 
-  @ApiPropertyOptional({ example: '#monitoring' })
+class PushConfig {
+  @ApiProperty({ description: 'OneSignal player ID' })
+  @IsString()
+  playerId!: string;
+
+  @ApiPropertyOptional({ description: 'Device type (web, ios, android)' })
   @IsOptional()
   @IsString()
-  channel?: string;
+  deviceType?: string;
 }
 
 class WebhookConfig {
@@ -47,8 +65,31 @@ class WebhookConfig {
   headers?: Record<string, string>;
 }
 
+// Legacy configs - kept for backwards compatibility
+class TelegramConfig {
+  @ApiProperty({ example: '123456789' })
+  @IsString()
+  chatId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  botToken?: string;
+}
+
+class SlackWebhookConfig {
+  @ApiProperty({ example: 'https://hooks.slack.com/services/...' })
+  @IsUrl()
+  webhookUrl!: string;
+
+  @ApiPropertyOptional({ example: '#monitoring' })
+  @IsOptional()
+  @IsString()
+  channel?: string;
+}
+
 export class CreateChannelDto {
-  @ApiProperty({ example: 'My Email Notifications' })
+  @ApiProperty({ example: 'My Notifications' })
   @IsString()
   name!: string;
 
@@ -60,27 +101,47 @@ export class CreateChannelDto {
   @IsString()
   workspaceId!: string;
 
+  // New channel configs
   @ApiPropertyOptional({ type: EmailConfig })
   @IsOptional()
   @ValidateNested()
   @Type(() => EmailConfig)
   emailConfig?: EmailConfig;
 
-  @ApiPropertyOptional({ type: TelegramConfig })
+  @ApiPropertyOptional({ type: SlackOAuthConfig })
   @IsOptional()
   @ValidateNested()
-  @Type(() => TelegramConfig)
-  telegramConfig?: TelegramConfig;
+  @Type(() => SlackOAuthConfig)
+  slackOAuthConfig?: SlackOAuthConfig;
 
-  @ApiPropertyOptional({ type: SlackConfig })
+  @ApiPropertyOptional({ type: DiscordConfig })
   @IsOptional()
   @ValidateNested()
-  @Type(() => SlackConfig)
-  slackConfig?: SlackConfig;
+  @Type(() => DiscordConfig)
+  discordConfig?: DiscordConfig;
+
+  @ApiPropertyOptional({ type: PushConfig })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PushConfig)
+  pushConfig?: PushConfig;
 
   @ApiPropertyOptional({ type: WebhookConfig })
   @IsOptional()
   @ValidateNested()
   @Type(() => WebhookConfig)
   webhookConfig?: WebhookConfig;
+
+  // Legacy configs - kept for backwards compatibility
+  @ApiPropertyOptional({ type: TelegramConfig })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TelegramConfig)
+  telegramConfig?: TelegramConfig;
+
+  @ApiPropertyOptional({ type: SlackWebhookConfig })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SlackWebhookConfig)
+  slackConfig?: SlackWebhookConfig;
 }
