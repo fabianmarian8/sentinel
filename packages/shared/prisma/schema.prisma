@@ -50,8 +50,11 @@ enum AlertSeverity {
 
 enum NotificationChannelType {
   email
-  telegram
-  slack
+  telegram      // Keep for backwards compatibility
+  slack         // Keep for backwards compatibility
+  slack_oauth   // NEW
+  discord       // NEW
+  push          // NEW
   webhook
 }
 
