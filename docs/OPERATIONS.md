@@ -455,6 +455,41 @@ WHERE id = 'RULE_ID_HERE';
 
 ---
 
+### CAPTCHA interval nesprávne nastavený pre SPA stránky
+
+**Príčina:** FlareSolverr sa používa aj pre SPA stránky (JavaScript rendering), nielen pre CAPTCHA/Cloudflare bypass. Starý kód nerozlišoval medzi týmito prípadmi.
+
+**Príznaky:**
+- Dashboard ukazuje "Interval zmenený na 1 deň (CAPTCHA ochrana)"
+- Ale stránka je len SPA bez akejkoľvek ochrany
+- V logoch: `FlareSolverr used for SPA rendering`
+
+**Diagnóza:**
+```bash
+# Pozri fallbackReason v logoch
+journalctl -u sentinel-worker -n 100 | grep -E "fallback|FlareSolverr|SPA"
+```
+
+Ak vidíš `JavaScript-rendered content detected (SPA)`, stránka nemá ochranu.
+
+**Riešenie - reset pravidla:**
+```bash
+docker exec n8n-postgres-1 psql -U n8n -d sentinel -c "
+UPDATE rules
+SET captcha_interval_enforced = false,
+    schedule = jsonb_set(schedule::jsonb, '{intervalSeconds}', '300')::json,
+    original_schedule = NULL,
+    next_run_at = NOW() + INTERVAL '30 seconds'
+WHERE name = 'RULE_NAME_HERE';
+"
+```
+
+**Poznámka:** Od decembra 2025 worker správne rozlišuje:
+- `block`, `cloudflare`, `captcha`, `403` → skutočná ochrana → 1-dňový interval
+- `javascript`, `spa` → len SPA rendering → zachová pôvodný interval
+
+---
+
 ### CAPTCHA interval sa nezmení na 1 deň
 
 **Príčina:** Flag `captcha_interval_enforced` bol nastavený starým kódom pred fixom.
@@ -492,6 +527,47 @@ WHERE captcha_interval_enforced = true
    ```bash
    docker logs n8n-postgres-1
    ```
+
+---
+
+### Badge notifikácie v rozšírení nefungujú
+
+**Príčina:** Manifest V3 service worker lifecycle problém - service worker môže byť ukončený Chrome-om a pri opätovnom spustení sa `onInstalled`/`onStartup` listenery NEVOLAJÚ.
+
+**Príznaky:**
+- Badge pri ikone rozšírenia sa nezobrazuje
+- Žiadne číslo indikujúce nové alerty
+- Po reštarte prehliadača to môže dočasne fungovať
+
+**Root Cause:**
+```typescript
+// PROBLÉM: Toto sa volá len raz pri inštalácii/štarte
+chrome.runtime.onInstalled.addListener(() => {
+  setupAlertPolling();  // Alarm sa nevytvorí pri "wake-up"
+});
+```
+
+**Riešenie:**
+Pridať top-level inicializáciu, ktorá sa spustí VŽDY keď service worker beží:
+
+```typescript
+// apps/extension/src/background/index.ts - na konci súboru
+(async () => {
+  const existingAlarm = await chrome.alarms.get(ALERT_POLL_ALARM);
+  if (!existingAlarm) {
+    chrome.alarms.create(ALERT_POLL_ALARM, {
+      periodInMinutes: 1,  // Chrome minimum je 1 minúta
+    });
+  }
+  await updateAlertBadge();
+})();
+```
+
+**Po oprave:**
+1. `pnpm --filter @sentinel/extension build`
+2. V Chrome: `chrome://extensions` → Reload rozšírenie
+
+**Poznámka:** Chrome vynucuje minimum 1 minúta pre `chrome.alarms`. Kratšie intervaly (napr. 30 sekúnd) sú automaticky zaokrúhlené.
 
 ---
 
