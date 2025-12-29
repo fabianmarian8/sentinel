@@ -147,4 +147,47 @@ export class NotificationChannelsController {
   async test(@Param('id') id: string, @Req() req: any) {
     return this.channelsService.test(req.user.id, id);
   }
+
+  @Post('slack/exchange')
+  @ApiOperation({ summary: 'Exchange Slack OAuth code for access token' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'OAuth code exchanged successfully',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Unauthorized - invalid or missing token',
+  })
+  async exchangeSlackCode(
+    @Body() body: { code: string; redirectUri: string },
+  ) {
+    return this.channelsService.exchangeSlackCode(body.code, body.redirectUri);
+  }
+
+  @Get('slack/channels')
+  @ApiOperation({ summary: 'List Slack channels for user to select' })
+  @ApiQuery({ name: 'accessToken', required: true })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Slack channels retrieved successfully',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Unauthorized - invalid or missing token',
+  })
+  async listSlackChannels(
+    @Query('accessToken') accessToken: string,
+  ) {
+    return this.channelsService.listSlackChannels(accessToken);
+  }
+
+  @Get('slack/auth-url')
+  @ApiOperation({ summary: 'Get Slack OAuth authorization URL' })
+  @ApiQuery({ name: 'redirectUri', required: true })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Slack OAuth URL generated successfully',
+  })
+  getSlackAuthUrl(@Query('redirectUri') redirectUri: string) {
+    const url = this.channelsService.getSlackAuthUrl(redirectUri);
+    return { url };
+  }
 }

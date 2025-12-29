@@ -314,4 +314,76 @@ export class NotificationChannelsService {
       message: 'Test notification sent (simulation)',
     };
   }
+
+  /**
+   * Exchange Slack OAuth code for access token
+   */
+  async exchangeSlackCode(code: string, redirectUri: string): Promise<{
+    accessToken: string;
+    teamName: string;
+    teamId: string;
+  }> {
+    const clientId = this.config.slackClientId;
+    const clientSecret = this.config.slackClientSecret;
+
+    if (!clientId || !clientSecret) {
+      throw new BadRequestException('Slack OAuth not configured');
+    }
+
+    const response = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: redirectUri,
+      }),
+    });
+
+    const data = await response.json() as any;
+
+    if (!data.ok) {
+      throw new BadRequestException(`Slack OAuth failed: ${data.error}`);
+    }
+
+    return {
+      accessToken: data.access_token,
+      teamName: data.team?.name || '',
+      teamId: data.team?.id || '',
+    };
+  }
+
+  /**
+   * List Slack channels for user to select
+   */
+  async listSlackChannels(accessToken: string): Promise<Array<{ id: string; name: string }>> {
+    const response = await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200', {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+
+    const data = await response.json() as any;
+
+    if (!data.ok) {
+      throw new BadRequestException(`Failed to list Slack channels: ${data.error}`);
+    }
+
+    return data.channels.map((ch: any) => ({
+      id: ch.id,
+      name: ch.name,
+    }));
+  }
+
+  /**
+   * Get Slack OAuth authorization URL
+   */
+  getSlackAuthUrl(redirectUri: string): string {
+    const clientId = this.config.slackClientId;
+    if (!clientId) {
+      throw new BadRequestException('Slack OAuth not configured');
+    }
+
+    const scopes = 'chat:write,channels:read,groups:read';
+    return `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  }
 }

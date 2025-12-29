@@ -64,4 +64,12 @@ export class ConfigService {
   get encryptionKey(): string {
     return this.configService.get('ENCRYPTION_KEY', { infer: true });
   }
+
+  get slackClientId(): string {
+    return process.env.SLACK_CLIENT_ID || '';
+  }
+
+  get slackClientSecret(): string {
+    return process.env.SLACK_CLIENT_SECRET || '';
+  }
 }
