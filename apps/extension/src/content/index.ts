@@ -7,6 +7,29 @@
  * - Extract element selectors
  */
 
+import { finder } from '@medv/finder';
+
+// CSS-in-JS patterns that should be blacklisted from selectors
+const CSS_IN_JS_PATTERNS = [
+  /^css-[a-z0-9]{4,}$/i,           // Emotion: css-1abc23
+  /^sc-[a-z0-9-]+$/i,              // Styled Components: sc-abc123-0
+  /^styled-[a-z0-9]+$/i,           // styled-jsx
+  /^nds-[a-z0-9-]+$/i,             // Nike Design System: nds-text
+  /^Mui[A-Z][a-zA-Z]+-[a-z]+-\d+$/, // MUI: MuiButton-root-123
+  /^jss\d+$/i,                     // JSS: jss123
+  /^_[a-z0-9]{5,}$/i,              // Underscore hash: _abc123
+  /^[a-z]{1,3}[0-9]{3,}$/i,        // Short prefix + numbers: a123, css123
+  /^[a-z]{1,2}\d+$/i,              // Random short: a1, b2
+  /^\d/,                           // Starts with number
+  /^[a-f0-9]{6,}$/i,               // Pure hex hash
+];
+
+// Check if a class name is likely generated/unstable
+function isUnstableClassName(name: string): boolean {
+  if (name.length > 40) return true; // Too long = likely hash
+  return CSS_IN_JS_PATTERNS.some(pattern => pattern.test(name));
+}
+
 interface SelectorFingerprint {
   selector: string;
   alternativeSelectors?: string[];
@@ -128,10 +151,44 @@ function updateHighlight(element: Element): void {
   }
 }
 
-// Generate unique CSS selector for element
+// Generate unique CSS selector for element using @medv/finder
 function generateSelector(element: Element): string {
+  try {
+    // Use @medv/finder with optimized settings
+    const selector = finder(element, {
+      // Filter out unstable CSS-in-JS class names
+      className: (name) => !isUnstableClassName(name),
+      // Filter out unstable IDs (CSS-in-JS generated)
+      idName: (name) => !isUnstableClassName(name),
+      // Prefer stable attributes
+      attr: (name, value) => {
+        // Always use data-testid, aria-label, role
+        if (name === 'data-testid' || name === 'data-test-id') return true;
+        if (name === 'aria-label' || name === 'role') return true;
+        // Use name attribute for form elements
+        if (name === 'name') return true;
+        return false;
+      },
+      // Prefer shorter selectors
+      seedMinLength: 1,
+      optimizedMinLength: 2,
+      // Timeout and path check limits
+      timeoutMs: 5000,
+      maxNumberOfPathChecks: 10000,
+    });
+
+    return selector;
+  } catch (error) {
+    // Fallback to legacy selector generation if finder fails
+    console.warn('Sentinel: finder failed, using fallback', error);
+    return generateFallbackSelector(element);
+  }
+}
+
+// Fallback selector generation (legacy method)
+function generateFallbackSelector(element: Element): string {
   // Try ID first
-  if (element.id) {
+  if (element.id && !isUnstableClassName(element.id)) {
     return `#${CSS.escape(element.id)}`;
   }
 
@@ -142,14 +199,10 @@ function generateSelector(element: Element): string {
   while (current && current !== document.body) {
     let selector = current.tagName.toLowerCase();
 
-    // Add classes that seem meaningful (not random/generated)
+    // Add classes that are stable (not CSS-in-JS)
     const classes = Array.from(current.classList)
-      .filter(cls =>
-        !cls.match(/^[a-z]{1,2}\d+/i) && // Skip random classes like "a1b2"
-        !cls.match(/^\d/) && // Skip classes starting with numbers
-        cls.length < 30 // Skip very long classes
-      )
-      .slice(0, 2); // Take max 2 classes
+      .filter(cls => !isUnstableClassName(cls))
+      .slice(0, 2);
 
     if (classes.length > 0) {
       selector += '.' + classes.map(c => CSS.escape(c)).join('.');
@@ -189,10 +242,20 @@ function generateSelector(element: Element): string {
   return path.join(' > ');
 }
 
+// Check if element is SVG or inside SVG (unreliable for text monitoring)
+function isSvgElement(element: Element): boolean {
+  return element instanceof SVGElement || element.closest('svg') !== null;
+}
+
 // Generate fingerprint for element auto-healing
 function generateFingerprint(element: Element): SelectorFingerprint {
   const primarySelector = generateSelector(element);
   const alternativeSelectors: string[] = [];
+
+  // Warn about SVG elements - they don't have reliable text content
+  if (isSvgElement(element)) {
+    console.warn('Sentinel: Selected SVG element may not have stable text content');
+  }
 
   // Strategy 1: XPath-like with text content
   const textContent = element.textContent?.trim().slice(0, 50);
@@ -269,15 +332,11 @@ function generateFingerprint(element: Element): SelectorFingerprint {
     const parentInfo: { tag: string; classes: string[]; id?: string } = {
       tag: parent.tagName.toLowerCase(),
       classes: Array.from(parent.classList)
-        .filter(cls =>
-          !cls.match(/^[a-z]{1,2}\d+/i) &&
-          !cls.match(/^\d/) &&
-          cls.length < 30
-        )
+        .filter(cls => !isUnstableClassName(cls))
         .slice(0, 3),
     };
 
-    if (parent.id) {
+    if (parent.id && !isUnstableClassName(parent.id)) {
       parentInfo.id = parent.id;
     }
 

@@ -53,13 +53,8 @@ async function fetchUnreadAlertsCount(): Promise<number> {
     // Note: Alert model uses 'triggeredAt', not 'createdAt'!
     const response = await apiRequest<{ alerts: { id: string; triggeredAt: string }[]; count: number }>(url);
 
-    // Filter client-side: only count alerts triggered after lastSeenTime
-    if (lastSeenTime && response?.alerts) {
-      const lastSeenDate = new Date(lastSeenTime);
-      const newAlerts = response.alerts.filter(a => new Date(a.triggeredAt) > lastSeenDate);
-      return newAlerts.length;
-    }
-
+    // Return total count of open alerts (not filtered by lastSeenTime)
+    // This shows ALL open alerts, not just "new since last view"
     return response?.count || 0;
   } catch (error) {
     // Session expired is expected when token is invalid - handle gracefully
@@ -117,8 +112,9 @@ async function clearBadge(): Promise<void> {
 // Setup periodic alert polling using chrome.alarms
 function setupAlertPolling(): void {
   // Create alarm for periodic polling
+  // Note: Chrome minimum is 1 minute, so we use 1 instead of ALERT_POLL_INTERVAL_MS / 60000
   chrome.alarms.create(ALERT_POLL_ALARM, {
-    periodInMinutes: ALERT_POLL_INTERVAL_MS / 60000,
+    periodInMinutes: 1, // Chrome enforces minimum 1 minute for alarms
   });
 
   // Initial poll
@@ -327,5 +323,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 console.log('Sentinel background service worker started');
+
+/**
+ * CRITICAL: Top-level initialization for Manifest V3 service worker
+ *
+ * This runs EVERY TIME the service worker starts, not just on install/startup.
+ * Service workers can be terminated and restarted by Chrome at any time,
+ * and onInstalled/onStartup only fire once, not on every wake-up.
+ */
+(async () => {
+  try {
+    // Check if polling alarm exists
+    const existingAlarm = await chrome.alarms.get(ALERT_POLL_ALARM);
+
+    if (!existingAlarm) {
+      console.log('Sentinel: Alarm not found, creating...');
+      // Recreate the alarm (minimum 1 minute in Chrome)
+      chrome.alarms.create(ALERT_POLL_ALARM, {
+        periodInMinutes: 1, // Chrome minimum is 1 minute
+      });
+    } else {
+      console.log('Sentinel: Alarm exists, scheduled at:', new Date(existingAlarm.scheduledTime));
+    }
+
+    // Always update badge on service worker startup
+    await updateAlertBadge();
+    console.log('Sentinel: Badge updated on startup');
+  } catch (error) {
+    console.error('Sentinel: Initialization error:', error);
+  }
+})();
 
 export {};

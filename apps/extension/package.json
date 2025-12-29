@@ -11,6 +11,7 @@
     "clean": "rm -rf dist build"
   },
   "dependencies": {
+    "@medv/finder": "^4.0.2",
     "@sentinel/shared": "workspace:*"
   },
   "devDependencies": {

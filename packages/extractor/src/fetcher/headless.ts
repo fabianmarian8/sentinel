@@ -534,13 +534,26 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       // Try to dismiss cookie banners
       if (dismissCookies) {
         // First try clicking accept buttons
+        let cookieClicked = false;
         for (const selector of COOKIE_BANNER_SELECTORS) {
           try {
             const btn = await page.$(selector);
             if (btn && await btn.isVisible()) {
-              await btn.click();
-              console.log(`[ElementScreenshot] Clicked cookie button: ${selector}`);
-              await page.waitForTimeout(500);
+              // Some cookie buttons trigger navigation - handle both cases
+              try {
+                await Promise.race([
+                  btn.click(),
+                  page.waitForNavigation({ timeout: 3000 }).catch(() => {}),
+                ]);
+                console.log(`[ElementScreenshot] Clicked cookie button: ${selector}`);
+                cookieClicked = true;
+
+                // Wait for potential navigation/reload to complete
+                await page.waitForLoadState('domcontentloaded').catch(() => {});
+                await page.waitForTimeout(1000);
+              } catch (clickError) {
+                console.log(`[ElementScreenshot] Cookie click error: ${clickError}`);
+              }
               break;
             }
           } catch {
@@ -548,10 +561,25 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
           }
         }
 
-        // Then hide any remaining banners via CSS
-        await page.addStyleTag({
-          content: COOKIE_BANNER_CONTAINERS.map(s => `${s} { display: none !important; }`).join('\n')
-        });
+        // Then hide any remaining banners via CSS (only if page didn't navigate away)
+        try {
+          await page.addStyleTag({
+            content: COOKIE_BANNER_CONTAINERS.map(s => `${s} { display: none !important; }`).join('\n')
+          });
+        } catch (styleError) {
+          // Page might have navigated, try to wait and retry
+          if (cookieClicked) {
+            await page.waitForLoadState('domcontentloaded').catch(() => {});
+            await page.waitForTimeout(500);
+            try {
+              await page.addStyleTag({
+                content: COOKIE_BANNER_CONTAINERS.map(s => `${s} { display: none !important; }`).join('\n')
+              });
+            } catch {
+              console.log(`[ElementScreenshot] Could not add style tag after navigation`);
+            }
+          }
+        }
       }
 
       // Wait for target element

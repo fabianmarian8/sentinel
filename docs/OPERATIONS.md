@@ -571,6 +571,80 @@ Pridať top-level inicializáciu, ktorá sa spustí VŽDY keď service worker be
 
 ---
 
+### Badge ukazuje menej alertov ako by mal
+
+**Príčina:** Pôvodná logika filtrovala alerty podľa `lastSeenAlertTime` - ukazovala len "nové od posledného otvorenia popup".
+
+**Príznaky:**
+- Badge ukazuje menšie číslo ako počet otvorených alertov
+- Po otvorení popup sa badge vynuluje
+
+**Riešenie (december 2025):**
+Badge teraz ukazuje VŠETKY otvorené alerty, nie len nové:
+
+```typescript
+// Predtým (filtrované):
+const newAlerts = response.alerts.filter(a => new Date(a.triggeredAt) > lastSeenDate);
+return newAlerts.length;
+
+// Teraz (všetky otvorené):
+return response?.count || 0;
+```
+
+**Po oprave:**
+1. `pnpm --filter @sentinel/extension build`
+2. V Chrome: `chrome://extensions` → Reload rozšírenie
+
+---
+
+### CSS selektory s hash triedami (CSS-in-JS)
+
+**Príčina:** Stránky používajúce CSS-in-JS (Emotion, Styled Components, MUI) generujú triedy ako `css-abc123` ktoré sa menia pri každom builde.
+
+**Príznaky:**
+- `SELECTOR_BROKEN` chyba
+- Selektor obsahuje triedy ako `css-xyz123`, `sc-abc`, `nds-text`, `MuiButton-root-5`
+
+**Riešenie (december 2025):**
+Extension teraz používa `@medv/finder` s blacklistom CSS-in-JS vzorov:
+
+```typescript
+const CSS_IN_JS_PATTERNS = [
+  /^css-[a-z0-9]{4,}$/i,     // Emotion
+  /^sc-[a-z0-9-]+$/i,        // Styled Components
+  /^nds-[a-z0-9-]+$/i,       // Nike Design System
+  /^Mui[A-Z][a-zA-Z]+-/,     // MUI
+  // ... ďalšie
+];
+```
+
+**Pre existujúce pravidlá:**
+```sql
+-- Odstráň hash triedy zo selektora
+UPDATE rules
+SET extraction = jsonb_set(extraction, '{selector}', '"a.stable-class"'::jsonb),
+    last_error_code = NULL
+WHERE id = 'RULE_ID';
+```
+
+---
+
+### SVG elementy bez textu
+
+**Príčina:** Užívateľ vybral SVG element (`<path>`, `<g>`, `<svg>`) ktorý nemá textový obsah.
+
+**Príznaky:**
+- `SELECTOR_BROKEN` chyba
+- Selektor obsahuje `g >`, `path`, `svg`
+- `Current Value: No data`
+
+**Riešenie:**
+SVG elementy nemožno monitorovať pre text. Užívateľ musí vybrať iný element obsahujúci skutočný text.
+
+Extension teraz zobrazuje warning v console keď užívateľ vyberie SVG element.
+
+---
+
 ## Zálohovanie
 
 ### Databáza
