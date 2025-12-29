@@ -307,12 +307,80 @@ export class NotificationChannelsService {
       throw new ForbiddenException('You are not a member of this workspace');
     }
 
-    // TODO: Actually send a test notification
-    // For now, just return success
-    return {
-      success: true,
-      message: 'Test notification sent (simulation)',
-    };
+    // Decrypt config and send test notification
+    let config: Record<string, any>;
+    try {
+      config = JSON.parse(this.decrypt(channel.configEncrypted));
+    } catch {
+      throw new BadRequestException('Failed to decrypt channel configuration');
+    }
+
+    const testMessage = `🧪 Test notification from Sentinel\n\nThis is a test message to verify your notification channel is working correctly.\n\nWorkspace: ${channel.workspace.name}\nChannel: ${channel.name}\nTime: ${new Date().toISOString()}`;
+
+    try {
+      switch (channel.type) {
+        case 'slack_oauth': {
+          const response = await fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${config.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              channel: config.channelId,
+              text: testMessage,
+            }),
+          });
+          const data = await response.json() as any;
+          if (!data.ok) {
+            throw new BadRequestException(`Slack API error: ${data.error}`);
+          }
+          return { success: true, message: 'Test notification sent to Slack' };
+        }
+
+        case 'discord': {
+          const response = await fetch(config.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: testMessage }),
+          });
+          if (!response.ok) {
+            throw new BadRequestException(`Discord webhook error: ${response.status}`);
+          }
+          return { success: true, message: 'Test notification sent to Discord' };
+        }
+
+        case 'email': {
+          // TODO: Implement email sending via Resend
+          return { success: true, message: 'Email test notification (not yet implemented)' };
+        }
+
+        case 'webhook': {
+          const response = await fetch(config.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...config.headers,
+            },
+            body: JSON.stringify({
+              type: 'test',
+              message: testMessage,
+              timestamp: new Date().toISOString(),
+            }),
+          });
+          if (!response.ok) {
+            throw new BadRequestException(`Webhook error: ${response.status}`);
+          }
+          return { success: true, message: 'Test notification sent to webhook' };
+        }
+
+        default:
+          return { success: false, message: `Channel type ${channel.type} not supported for testing` };
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(`Failed to send test notification: ${error.message}`);
+    }
   }
 
   /**
