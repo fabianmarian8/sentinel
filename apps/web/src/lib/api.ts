@@ -149,20 +149,36 @@ export interface TestRuleResult {
 }
 
 // Notification Channel types
-export type ChannelType = 'email' | 'telegram' | 'slack' | 'webhook';
+export type ChannelType = 'email' | 'slack_oauth' | 'discord' | 'push' | 'webhook';
+// Legacy types - kept for backwards compatibility
+export type LegacyChannelType = 'telegram' | 'slack';
 
 export interface NotificationChannel {
   id: string;
   workspaceId: string;
-  type: ChannelType;
+  type: ChannelType | LegacyChannelType;
   name: string;
   enabled: boolean;
   createdAt: string;
   config?: {
+    // Email
     email?: string;
+    // Slack OAuth
+    accessToken?: string;
+    channelId?: string;
+    channelName?: string;
+    teamName?: string;
+    // Discord
+    webhookUrl?: string;
+    // Push
+    playerId?: string;
+    deviceType?: string;
+    // Webhook
+    url?: string;
+    headers?: Record<string, string>;
+    // Legacy
     chatId?: string;
     channel?: string;
-    url?: string;
   };
 }
 
@@ -170,19 +186,45 @@ export interface CreateNotificationChannelDto {
   name: string;
   type: ChannelType;
   workspaceId: string;
+  // New channel configs
   emailConfig?: { email: string };
-  telegramConfig?: { chatId: string; botToken?: string };
-  slackConfig?: { webhookUrl: string; channel?: string };
+  slackOAuthConfig?: {
+    accessToken: string;
+    channelId: string;
+    channelName: string;
+    teamName?: string;
+  };
+  discordConfig?: { webhookUrl: string };
+  pushConfig?: { playerId: string; deviceType?: string };
   webhookConfig?: { url: string; headers?: Record<string, string> };
 }
 
 export interface UpdateNotificationChannelDto {
   name?: string;
   enabled?: boolean;
+  // New channel configs
   emailConfig?: { email: string };
-  telegramConfig?: { chatId: string; botToken?: string };
-  slackConfig?: { webhookUrl: string; channel?: string };
+  slackOAuthConfig?: {
+    accessToken: string;
+    channelId: string;
+    channelName: string;
+    teamName?: string;
+  };
+  discordConfig?: { webhookUrl: string };
+  pushConfig?: { playerId: string; deviceType?: string };
   webhookConfig?: { url: string; headers?: Record<string, string> };
+}
+
+// Slack OAuth types
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
+export interface SlackOAuthExchangeResponse {
+  accessToken: string;
+  teamName: string;
+  teamId: string;
 }
 
 class ApiClient {
@@ -357,6 +399,22 @@ class ApiClient {
     return this.request<{ success: boolean; message: string }>(`/notification-channels/${id}/test`, {
       method: 'POST',
     });
+  }
+
+  // Slack OAuth
+  async getSlackAuthUrl(redirectUri: string) {
+    return this.request<{ url: string }>(`/notification-channels/slack/auth-url?redirectUri=${encodeURIComponent(redirectUri)}`);
+  }
+
+  async exchangeSlackCode(code: string, redirectUri: string) {
+    return this.request<SlackOAuthExchangeResponse>('/notification-channels/slack/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code, redirectUri }),
+    });
+  }
+
+  async listSlackChannels(accessToken: string) {
+    return this.request<SlackChannel[]>(`/notification-channels/slack/channels?accessToken=${encodeURIComponent(accessToken)}`);
   }
 
   // Health
