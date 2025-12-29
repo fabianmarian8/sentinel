@@ -221,16 +221,19 @@ export class RunProcessor extends WorkerHost {
 
         if (currentInterval < ONE_DAY_SEC) {
           // Save original schedule and enforce 1-day interval
+          // IMPORTANT: Also update nextRunAt immediately to override scheduler's stale value
+          const newNextRunAt = new Date(Date.now() + ONE_DAY_SEC * 1000);
           await this.prisma.rule.update({
             where: { id: ruleId },
             data: {
               captchaIntervalEnforced: true,
               originalSchedule: rule.schedule as any,
               schedule: { ...currentSchedule, intervalSeconds: ONE_DAY_SEC },
+              nextRunAt: newNextRunAt,
             },
           });
           this.logger.warn(
-            `[Job ${job.id}] Rule ${ruleId}: CAPTCHA detected (2captcha cost), interval auto-changed from ${currentInterval}s to ${ONE_DAY_SEC}s (1 day)`,
+            `[Job ${job.id}] Rule ${ruleId}: CAPTCHA detected (2captcha cost), interval auto-changed from ${currentInterval}s to ${ONE_DAY_SEC}s (1 day), next run at ${newNextRunAt.toISOString()}`,
           );
         }
       }

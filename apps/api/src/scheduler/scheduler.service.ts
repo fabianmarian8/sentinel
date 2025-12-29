@@ -185,14 +185,27 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           },
         );
 
-        // Calculate next run time
-        const nextRunAt = this.calculateNextRunTime(rule.schedule);
-
-        // Update rule
-        await this.prisma.rule.update({
+        // Fetch fresh rule state in case worker modified it (e.g., CAPTCHA detection)
+        const freshRule = await this.prisma.rule.findUnique({
           where: { id: rule.id },
-          data: { nextRunAt },
+          select: { schedule: true, captchaIntervalEnforced: true, nextRunAt: true },
         });
+
+        // If captchaIntervalEnforced was just set, worker already updated nextRunAt - don't overwrite
+        if (freshRule?.captchaIntervalEnforced && freshRule.nextRunAt && freshRule.nextRunAt > new Date()) {
+          this.logger.debug(
+            `Rule ${rule.id}: CAPTCHA enforced, keeping worker's nextRunAt: ${freshRule.nextRunAt.toISOString()}`,
+          );
+        } else {
+          // Calculate next run time using fresh schedule
+          const nextRunAt = this.calculateNextRunTime(freshRule?.schedule ?? rule.schedule);
+
+          // Update rule
+          await this.prisma.rule.update({
+            where: { id: rule.id },
+            data: { nextRunAt },
+          });
+        }
 
         // Add delay for domain rate limiting
         if (i < rules.length - 1) {
