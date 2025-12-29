@@ -47,14 +47,19 @@ async function fetchUnreadAlertsCount(): Promise<number> {
     if (!workspaces || workspaces.length === 0) return 0;
 
     // Fetch open alerts (not acknowledged or resolved)
-    const url = `/alerts?workspaceId=${workspaces[0].id}&status=open&limit=100`;
+    // Filter by lastSeenTime if available to only show NEW alerts
+    let url = `/alerts?workspaceId=${workspaces[0].id}&status=open&limit=100`;
+
+    if (lastSeenTime) {
+      url += `&since=${encodeURIComponent(lastSeenTime)}`;
+    }
 
     // API returns { alerts: [...], count: N }
     // Note: Alert model uses 'triggeredAt', not 'createdAt'!
     const response = await apiRequest<{ alerts: { id: string; triggeredAt: string }[]; count: number }>(url);
 
-    // Return total count of open alerts (not filtered by lastSeenTime)
-    // This shows ALL open alerts, not just "new since last view"
+    // Return count of new alerts since last view
+    // The API 'count' field reflects the filtered result
     return response?.count || 0;
   } catch (error) {
     // Session expired is expected when token is invalid - handle gracefully
