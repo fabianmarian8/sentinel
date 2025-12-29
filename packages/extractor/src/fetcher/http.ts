@@ -1,7 +1,37 @@
 // HTTP fetcher using undici
 import { request } from 'undici';
+import { gunzipSync, inflateSync, brotliDecompressSync } from 'zlib';
 import type { FetchResult, FetchOptions } from './types';
 import { getRandomUserAgent } from './user-agents';
+
+/**
+ * Decompress response body based on Content-Encoding header
+ */
+function decompressBody(buffer: Buffer, encoding: string | null): string {
+  if (!encoding) {
+    return buffer.toString('utf-8');
+  }
+
+  const enc = encoding.toLowerCase().trim();
+
+  try {
+    if (enc === 'gzip' || enc === 'x-gzip') {
+      return gunzipSync(buffer).toString('utf-8');
+    } else if (enc === 'deflate') {
+      return inflateSync(buffer).toString('utf-8');
+    } else if (enc === 'br') {
+      return brotliDecompressSync(buffer).toString('utf-8');
+    } else if (enc === 'identity' || enc === '') {
+      return buffer.toString('utf-8');
+    } else {
+      // Unknown encoding, try raw
+      return buffer.toString('utf-8');
+    }
+  } catch {
+    // Decompression failed, return as-is
+    return buffer.toString('utf-8');
+  }
+}
 
 const DEFAULT_TIMEOUT = 15000;
 const MAX_REDIRECTS = 5;
@@ -80,6 +110,9 @@ export async function fetchHttp(options: FetchOptions): Promise<FetchResult> {
     // Capture content type
     result.contentType = responseHeaders['content-type'] || null;
 
+    // Get content-encoding for decompression
+    const contentEncoding = responseHeaders['content-encoding'] || null;
+
     // Handle HTTP status codes
     if (response.statusCode >= 400 && response.statusCode < 500) {
       result.errorCode = 'FETCH_HTTP_4XX';
@@ -87,8 +120,8 @@ export async function fetchHttp(options: FetchOptions): Promise<FetchResult> {
 
       // Read body even on error for debugging
       try {
-        const body = await response.body.text();
-        result.html = body;
+        const buffer = Buffer.from(await response.body.arrayBuffer());
+        result.html = decompressBody(buffer, contentEncoding);
       } catch {
         // Ignore body read errors
       }
@@ -101,8 +134,8 @@ export async function fetchHttp(options: FetchOptions): Promise<FetchResult> {
       result.errorDetail = `HTTP ${response.statusCode}`;
 
       try {
-        const body = await response.body.text();
-        result.html = body;
+        const buffer = Buffer.from(await response.body.arrayBuffer());
+        result.html = decompressBody(buffer, contentEncoding);
       } catch {
         // Ignore body read errors
       }
@@ -110,9 +143,9 @@ export async function fetchHttp(options: FetchOptions): Promise<FetchResult> {
       return result;
     }
 
-    // Read response body
-    const body = await response.body.text();
-    result.html = body;
+    // Read response body with decompression
+    const buffer = Buffer.from(await response.body.arrayBuffer());
+    result.html = decompressBody(buffer, contentEncoding);
     result.success = true;
 
     return result;
