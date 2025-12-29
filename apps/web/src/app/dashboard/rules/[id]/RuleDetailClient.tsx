@@ -4,65 +4,16 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { HealthBadge } from '@/components/HealthBadge';
-import api from '@/lib/api';
-
-interface RuleDetail {
-  id: string;
-  name: string;
-  ruleType: string;
-  enabled: boolean;
-  healthScore: number;
-  lastErrorCode: string | null;
-  lastErrorAt: string | null;
-  nextRunAt: string | null;
-  createdAt: string;
-  screenshotOnChange: boolean;
-  captchaIntervalEnforced?: boolean;
-  originalSchedule?: { intervalSec?: number } | null;
-  extraction: {
-    method: string;
-    selector: string;
-    attribute?: string;
-  };
-  schedule: {
-    intervalSeconds: number;
-    jitterSeconds: number;
-  };
-  source: {
-    id: string;
-    url: string;
-    domain: string;
-    workspace: {
-      id: string;
-      name: string;
-    };
-  };
-  currentState: {
-    lastStable: any;
-    candidate: any;
-    candidateCount: number;
-    updatedAt: string;
-  } | null;
-  latestObservations: Array<{
-    id: string;
-    extractedRaw: string;
-    extractedNormalized: any;
-    changeDetected: boolean;
-    changeKind: string | null;
-    diffSummary?: string;
-    createdAt: string;
-    run: { httpStatus: number; errorCode: string | null; screenshotPath: string | null };
-  }>;
-}
+import api, { Rule, TestRuleResult } from '@/lib/api';
 
 export default function RuleDetailClient() {
   const params = useParams();
   const router = useRouter();
-  const [rule, setRule] = useState<RuleDetail | null>(null);
+  const [rule, setRule] = useState<Rule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isTestRunning, setIsTestRunning] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<TestRuleResult | null>(null);
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -170,7 +121,8 @@ export default function RuleDetailClient() {
   };
 
   const handleIntervalChange = async () => {
-    if (!rule || newIntervalMinutes <= 0) return;
+    const parsedInterval = Number(newIntervalMinutes);
+    if (!rule || isNaN(parsedInterval) || parsedInterval <= 0) return;
     try {
       await api.updateRule(rule.id, {
         schedule: {
@@ -200,7 +152,7 @@ export default function RuleDetailClient() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500">Loading rule...</p>
+          <p className="mt-4 text-gray-500">Načítavam pravidlo...</p>
         </div>
       </div>
     );
@@ -211,12 +163,12 @@ export default function RuleDetailClient() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4">😕</div>
-          <p className="text-gray-500 mb-4">{error || 'Rule not found'}</p>
+          <p className="text-gray-500 mb-4">{error || 'Pravidlo nenájdené'}</p>
           <Link
             href="/dashboard"
             className="text-primary-600 hover:text-primary-700 font-medium"
           >
-            ← Back to Dashboard
+            ← Späť na Dashboard
           </Link>
         </div>
       </div>
@@ -253,7 +205,7 @@ export default function RuleDetailClient() {
                 <h1 className="text-2xl font-bold text-gray-900">{rule.name}</h1>
                 {!rule.enabled && (
                   <span className="px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded-full">
-                    Paused
+                    Pozastavené
                   </span>
                 )}
               </div>
@@ -268,11 +220,11 @@ export default function RuleDetailClient() {
                 </a>
               </p>
               <div className="mt-4 flex items-center gap-4 text-sm text-gray-500">
-                <span>Type: <strong className="text-gray-700">{rule.ruleType}</strong></span>
+                <span>Typ: <strong className="text-gray-700">{rule.ruleType}</strong></span>
                 <span>•</span>
-                <span>Created: <strong className="text-gray-700">{formatTimeAgo(rule.createdAt)}</strong></span>
+                <span>Vytvorené: <strong className="text-gray-700">{formatTimeAgo(rule.createdAt)}</strong></span>
                 <span>•</span>
-                <span>Next check: <strong className="text-gray-700">{formatTimeAgo(rule.nextRunAt)}</strong></span>
+                <span>Ďalšia kontrola: <strong className="text-gray-700">{formatTimeAgo(rule.nextRunAt)}</strong></span>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -283,28 +235,28 @@ export default function RuleDetailClient() {
                   disabled={isTestRunning}
                   className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isTestRunning ? 'Testing...' : 'Test Now'}
+                  {isTestRunning ? 'Testujem...' : 'Otestovať'}
                 </button>
                 {rule.enabled ? (
                   <button
                     onClick={handlePause}
                     className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
                   >
-                    Pause
+                    Pozastaviť
                   </button>
                 ) : (
                   <button
                     onClick={handleResume}
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                   >
-                    Resume
+                    Obnoviť
                   </button>
                 )}
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                 >
-                  Delete
+                  Vymazať
                 </button>
               </div>
             </div>
@@ -315,25 +267,25 @@ export default function RuleDetailClient() {
         {testResult && (
           <div className={`rounded-lg shadow border p-4 mb-6 ${testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
             <h3 className={`font-medium ${testResult.success ? 'text-green-800' : 'text-red-800'}`}>
-              Test {testResult.success ? 'Successful' : 'Failed'}
+              Test {testResult.success ? 'úspešný' : 'zlyhal'}
             </h3>
             <div className="mt-2 grid grid-cols-3 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">Fetch Time:</span>{' '}
+                <span className="text-gray-500">Čas načítania:</span>{' '}
                 <span className="font-medium">{testResult.timing?.fetchMs || 'N/A'}ms</span>
               </div>
               <div>
-                <span className="text-gray-500">HTTP Status:</span>{' '}
+                <span className="text-gray-500">HTTP stav:</span>{' '}
                 <span className="font-medium">{testResult.fetch?.httpStatus || 'N/A'}</span>
               </div>
               <div>
-                <span className="text-gray-500">Extracted Value:</span>{' '}
+                <span className="text-gray-500">Extrahovaná hodnota:</span>{' '}
                 <span className="font-medium">{testResult.extraction?.rawValue || 'N/A'}</span>
               </div>
             </div>
             {testResult.errors && testResult.errors.length > 0 && (
               <div className="mt-2 text-red-600">
-                Errors: {testResult.errors.join(', ')}
+                Chyby: {testResult.errors.join(', ')}
               </div>
             )}
           </div>
@@ -342,31 +294,31 @@ export default function RuleDetailClient() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Current Value */}
           <div className="lg:col-span-2 bg-white rounded-lg shadow border border-gray-200 p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Current Value</h2>
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Aktuálna hodnota</h2>
             <div className="text-4xl font-bold text-gray-900">
-              {rule.currentState?.lastStable?.raw || 'No data'}
+              {rule.currentState?.lastStable?.raw || 'Žiadne dáta'}
             </div>
             <p className="mt-2 text-sm text-gray-500">
-              Last updated: {formatTimeAgo(rule.currentState?.updatedAt ?? null)}
+              Naposledy aktualizované: {formatTimeAgo(rule.currentState?.updatedAt ?? null)}
             </p>
           </div>
 
           {/* Configuration */}
           <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Configuration</h2>
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Konfigurácia</h2>
             <dl className="space-y-3 text-sm">
               <div>
-                <dt className="text-gray-500">Selector</dt>
+                <dt className="text-gray-500">Selektor</dt>
                 <dd className="font-mono text-xs bg-gray-100 p-2 rounded mt-1">
                   {rule.extraction.selector}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Method</dt>
+                <dt className="text-gray-500">Metóda</dt>
                 <dd className="font-medium text-gray-900">{rule.extraction.method.toUpperCase()}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Check Interval</dt>
+                <dt className="text-gray-500">Interval kontroly</dt>
                 {isEditingInterval ? (
                   <div className="mt-1 flex items-center gap-2">
                     <select
@@ -399,7 +351,7 @@ export default function RuleDetailClient() {
                   </div>
                 ) : (
                   <dd className="font-medium text-gray-900 flex items-center gap-2">
-                    Every {rule.schedule.intervalSeconds / 60} minutes
+                    Každých {rule.schedule.intervalSeconds / 60} minút
                     <button
                       onClick={startEditingInterval}
                       className="text-primary-600 hover:text-primary-700 text-xs"
@@ -416,9 +368,9 @@ export default function RuleDetailClient() {
                     </div>
                     <p className="mt-1 text-amber-600">
                       Stránka vyžaduje CAPTCHA. Interval bol automaticky zmenený na 1 deň pre úsporu nákladov.
-                      {rule.originalSchedule?.intervalSec && (
+                      {rule.originalSchedule?.intervalSeconds && (
                         <span className="block mt-0.5">
-                          Pôvodný interval: {Math.round(rule.originalSchedule.intervalSec / 60)} min
+                          Pôvodný interval: {Math.round(rule.originalSchedule.intervalSeconds / 60)} min
                         </span>
                       )}
                     </p>
@@ -448,25 +400,25 @@ export default function RuleDetailClient() {
 
         {/* Observation History */}
         <div className="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Observations</h2>
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Posledné pozorovania</h2>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead>
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Time
+                    Čas
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Value
+                    Hodnota
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
+                    Stav
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Change
+                    Zmena
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Screenshot
+                    Snímka
                   </th>
                 </tr>
               </thead>
@@ -501,7 +453,7 @@ export default function RuleDetailClient() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-gray-400">No change</span>
+                        <span className="text-gray-400">Bez zmeny</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -512,7 +464,7 @@ export default function RuleDetailClient() {
                         >
                           <img
                             src={obs.run.screenshotPath}
-                            alt="Screenshot"
+                            alt="Snímka obrazovky"
                             className="w-16 h-10 object-cover rounded border border-gray-200 hover:border-primary-500 transition-colors"
                           />
                           <span className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded">

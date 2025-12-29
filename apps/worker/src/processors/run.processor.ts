@@ -101,7 +101,20 @@ export class RunProcessor extends WorkerHost {
     // Step 2: Check rate limit
     const fetchModeUsed: FetchMode =
       forceMode ?? rule.source.fetchProfile?.mode ?? 'http';
-    const domain = new URL(rule.source.url).hostname;
+
+    let domain: string;
+    try {
+      domain = new URL(rule.source.url).hostname;
+    } catch {
+      this.logger.error(
+        `[Job ${job.id}] Invalid URL for rule ${ruleId}: ${rule.source.url}`,
+      );
+      return {
+        skipped: true,
+        reason: 'Invalid source URL',
+        error: 'INVALID_URL',
+      };
+    }
 
     const rateLimitResult = await this.rateLimiter.consumeToken(
       domain,
@@ -198,18 +211,12 @@ export class RunProcessor extends WorkerHost {
       }
 
       // Auto-enforce 1-day interval for FlareSolverr/2captcha sites (cost limitation)
-      // Exception: test@example.com (admin account)
-      const EXEMPT_EMAILS = ['test@example.com'];
-      const ownerEmail = rule.source.workspace?.owner?.email;
-      const isExempt = ownerEmail && EXEMPT_EMAILS.includes(ownerEmail);
-
       if (
         fetchResult.modeUsed === 'flaresolverr' &&
-        !isExempt &&
         !rule.captchaIntervalEnforced
       ) {
-        const currentSchedule = rule.schedule as { intervalSec?: number; cron?: string } | null;
-        const currentInterval = currentSchedule?.intervalSec ?? 0;
+        const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
+        const currentInterval = currentSchedule?.intervalSeconds ?? 0;
         const ONE_DAY_SEC = 86400;
 
         if (currentInterval < ONE_DAY_SEC) {
@@ -219,7 +226,7 @@ export class RunProcessor extends WorkerHost {
             data: {
               captchaIntervalEnforced: true,
               originalSchedule: rule.schedule as any,
-              schedule: { ...currentSchedule, intervalSec: ONE_DAY_SEC },
+              schedule: { ...currentSchedule, intervalSeconds: ONE_DAY_SEC },
             },
           });
           this.logger.warn(
@@ -507,18 +514,30 @@ export class RunProcessor extends WorkerHost {
       return;
     }
 
-    // Create alert record
-    const alert = await this.prisma.alert.create({
-      data: {
-        ruleId: rule.id,
-        triggeredAt: new Date(),
-        severity: alertSeverity,
-        title,
-        body,
-        dedupeKey,
-        channelsSent: [],
-      },
-    });
+    // Create alert record (with duplicate key handling)
+    let alert;
+    try {
+      alert = await this.prisma.alert.create({
+        data: {
+          ruleId: rule.id,
+          triggeredAt: new Date(),
+          severity: alertSeverity,
+          title,
+          body,
+          dedupeKey,
+          channelsSent: [],
+        },
+      });
+    } catch (error: any) {
+      // Handle duplicate key constraint (P2002 = Prisma unique constraint violation)
+      if (error?.code === 'P2002') {
+        this.logger.debug(
+          `[Rule ${rule.id}] Alert already exists with dedupeKey: ${dedupeKey}`,
+        );
+        return;
+      }
+      throw error;
+    }
 
     this.logger.log(
       `[Rule ${rule.id}] Alert created (id: ${alert.id}, severity: ${alertSeverity})`,

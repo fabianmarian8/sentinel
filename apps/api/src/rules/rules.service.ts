@@ -3,9 +3,16 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRuleDto } from './dto/create-rule.dto';
 import { UpdateRuleDto } from './dto/update-rule.dto';
+
+interface ScheduleConfig {
+  intervalSeconds: number;
+  jitterSeconds?: number;
+  cron?: string;
+}
 
 @Injectable()
 export class RulesService {
@@ -106,10 +113,11 @@ export class RulesService {
   /**
    * Calculate next run time based on schedule config
    */
-  private calculateNextRunAt(schedule: any): Date {
-    const intervalMs = schedule.intervalSeconds * 1000;
-    const jitterMs = schedule.jitterSeconds
-      ? Math.random() * schedule.jitterSeconds * 1000
+  private calculateNextRunAt(schedule: ScheduleConfig | Prisma.JsonValue): Date {
+    const config = schedule as ScheduleConfig;
+    const intervalMs = (config.intervalSeconds ?? 300) * 1000;
+    const jitterMs = config.jitterSeconds
+      ? Math.random() * config.jitterSeconds * 1000
       : 0;
     return new Date(Date.now() + intervalMs + jitterMs);
   }
@@ -389,113 +397,141 @@ export class RulesService {
   }
 
   /**
-   * Update a rule
+   * Update a rule (with transaction for consistency)
    */
   async update(id: string, userId: string, dto: UpdateRuleDto) {
-    // Verify rule access
-    await this.verifyRuleAccess(id, userId);
-
-    // Get current rule
-    const currentRule = await this.prisma.rule.findUnique({
-      where: { id },
-    });
-
-    if (!currentRule) {
-      throw new NotFoundException('Rule not found');
-    }
-
-    // Prepare update data
-    const updateData: any = {};
-
-    if (dto.name !== undefined) updateData.name = dto.name;
-    if (dto.ruleType !== undefined) updateData.ruleType = dto.ruleType;
-    if (dto.extraction !== undefined) updateData.extraction = dto.extraction;
-    if (dto.normalization !== undefined)
-      updateData.normalization = dto.normalization;
-    if (dto.alertPolicy !== undefined)
-      updateData.alertPolicy = dto.alertPolicy;
-    if (dto.enabled !== undefined) updateData.enabled = dto.enabled;
-    if (dto.screenshotOnChange !== undefined)
-      updateData.screenshotOnChange = dto.screenshotOnChange;
-
-    // If schedule is being updated, recalculate nextRunAt
-    if (dto.schedule !== undefined) {
-      updateData.schedule = dto.schedule;
-      updateData.nextRunAt = this.calculateNextRunAt(dto.schedule);
-    }
-
-    // Update rule
-    const rule = await this.prisma.rule.update({
-      where: { id },
-      data: updateData,
-      include: {
-        source: {
-          select: {
-            id: true,
-            url: true,
-            domain: true,
+    return await this.prisma.$transaction(async (tx) => {
+      // Verify rule access inside transaction
+      const currentRule = await tx.rule.findFirst({
+        where: {
+          id,
+          source: {
             workspace: {
-              select: {
-                id: true,
-                name: true,
-              },
+              OR: [
+                { ownerId: userId },
+                { members: { some: { userId } } },
+              ],
             },
           },
         },
-        state: true,
-        observations: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: 5,
-        },
-      },
-    });
+      });
 
-    return {
-      id: rule.id,
-      sourceId: rule.sourceId,
-      source: rule.source,
-      name: rule.name,
-      ruleType: rule.ruleType,
-      extraction: rule.extraction,
-      normalization: rule.normalization,
-      schedule: rule.schedule,
-      alertPolicy: rule.alertPolicy,
-      enabled: rule.enabled,
-      screenshotOnChange: rule.screenshotOnChange,
-      healthScore: rule.healthScore,
-      lastErrorCode: rule.lastErrorCode,
-      lastErrorAt: rule.lastErrorAt,
-      nextRunAt: rule.nextRunAt,
-      createdAt: rule.createdAt,
-      currentState: rule.state
-        ? {
-            lastStable: rule.state.lastStable,
-            candidate: rule.state.candidate,
-            candidateCount: rule.state.candidateCount,
-            updatedAt: rule.state.updatedAt,
-          }
-        : null,
-      latestObservations: rule.observations,
-    };
+      if (!currentRule) {
+        throw new NotFoundException('Rule not found or access denied');
+      }
+
+      // Prepare update data with proper typing
+      const updateData: Prisma.RuleUpdateInput = {};
+
+      if (dto.name !== undefined) updateData.name = dto.name;
+      if (dto.ruleType !== undefined) updateData.ruleType = dto.ruleType;
+      if (dto.extraction !== undefined) updateData.extraction = dto.extraction;
+      if (dto.normalization !== undefined)
+        updateData.normalization = dto.normalization;
+      if (dto.alertPolicy !== undefined)
+        updateData.alertPolicy = dto.alertPolicy;
+      if (dto.enabled !== undefined) updateData.enabled = dto.enabled;
+      if (dto.screenshotOnChange !== undefined)
+        updateData.screenshotOnChange = dto.screenshotOnChange;
+
+      // If schedule is being updated, recalculate nextRunAt
+      if (dto.schedule !== undefined) {
+        updateData.schedule = dto.schedule;
+        updateData.nextRunAt = this.calculateNextRunAt(dto.schedule);
+      }
+
+      // Update rule
+      const rule = await tx.rule.update({
+        where: { id },
+        data: updateData,
+        include: {
+          source: {
+            select: {
+              id: true,
+              url: true,
+              domain: true,
+              workspace: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          state: true,
+          observations: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 5,
+          },
+        },
+      });
+
+      return {
+        id: rule.id,
+        sourceId: rule.sourceId,
+        source: rule.source,
+        name: rule.name,
+        ruleType: rule.ruleType,
+        extraction: rule.extraction,
+        normalization: rule.normalization,
+        schedule: rule.schedule,
+        alertPolicy: rule.alertPolicy,
+        enabled: rule.enabled,
+        screenshotOnChange: rule.screenshotOnChange,
+        healthScore: rule.healthScore,
+        lastErrorCode: rule.lastErrorCode,
+        lastErrorAt: rule.lastErrorAt,
+        nextRunAt: rule.nextRunAt,
+        createdAt: rule.createdAt,
+        currentState: rule.state
+          ? {
+              lastStable: rule.state.lastStable,
+              candidate: rule.state.candidate,
+              candidateCount: rule.state.candidateCount,
+              updatedAt: rule.state.updatedAt,
+            }
+          : null,
+        latestObservations: rule.observations,
+      };
+    });
   }
 
   /**
-   * Delete a rule
+   * Delete a rule (with transaction for consistency)
    */
   async remove(id: string, userId: string) {
-    // Verify rule access
-    await this.verifyRuleAccess(id, userId);
+    return await this.prisma.$transaction(async (tx) => {
+      // Verify rule access inside transaction
+      const rule = await tx.rule.findFirst({
+        where: {
+          id,
+          source: {
+            workspace: {
+              OR: [
+                { ownerId: userId },
+                { members: { some: { userId } } },
+              ],
+            },
+          },
+        },
+      });
 
-    // Delete rule (cascade will handle state, runs, observations, alerts)
-    await this.prisma.rule.delete({
-      where: { id },
+      if (!rule) {
+        throw new NotFoundException('Rule not found or access denied');
+      }
+
+      // Delete rule (cascade will handle state, runs, observations, alerts)
+      await tx.rule.delete({
+        where: { id },
+      });
+
+      return {
+        deleted: true,
+        message: 'Rule deleted successfully',
+      };
     });
-
-    return {
-      message: 'Rule deleted successfully',
-    };
   }
 
   /**

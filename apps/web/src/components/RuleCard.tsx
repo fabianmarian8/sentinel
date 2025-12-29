@@ -22,7 +22,7 @@ interface RuleCardProps {
     } | null;
     observationCount: number;
     captchaIntervalEnforced?: boolean;
-    originalSchedule?: { intervalSec?: number } | null;
+    originalSchedule?: { intervalSeconds?: number } | null;
   };
 }
 
@@ -122,9 +122,9 @@ export function RuleCard({ rule }: RuleCardProps) {
             <span>🔒</span>
             <span>
               Interval zmenený na 1 deň (CAPTCHA ochrana)
-              {rule.originalSchedule?.intervalSec && (
+              {rule.originalSchedule?.intervalSeconds && (
                 <span className="text-amber-600 ml-1">
-                  (pôvodne {Math.round(rule.originalSchedule.intervalSec / 60)} min)
+                  (pôvodne {Math.round(rule.originalSchedule.intervalSeconds / 60)} min)
                 </span>
               )}
             </span>

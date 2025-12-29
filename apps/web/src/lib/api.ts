@@ -4,6 +4,149 @@ interface FetchOptions extends RequestInit {
   token?: string;
 }
 
+// Core types
+export type RuleType = 'price' | 'availability' | 'text' | 'number' | 'json_field';
+export type WorkspaceType = 'ecommerce' | 'competitor' | 'procurement';
+export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface User {
+  id: string;
+  email: string;
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  user: User;
+}
+
+export interface Workspace {
+  id: string;
+  ownerId: string;
+  type: WorkspaceType;
+  name: string;
+  timezone: string;
+  createdAt: string;
+}
+
+export interface Source {
+  id: string;
+  workspaceId: string;
+  url: string;
+  domain: string;
+  enabled: boolean;
+  createdAt: string;
+  workspace?: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface ExtractionConfig {
+  method: 'css' | 'xpath' | 'regex' | 'jsonpath';
+  selector: string;
+  attribute?: string;
+}
+
+export interface ScheduleConfig {
+  intervalSeconds: number;
+  jitterSeconds?: number;
+  cron?: string;
+}
+
+export interface AlertCondition {
+  id: string;
+  type: string;
+  value: number | string | boolean;
+  severity: 'info' | 'warning' | 'critical';
+  threshold?: number;
+}
+
+export interface AlertPolicy {
+  requireConsecutive: number;
+  cooldownSeconds: number;
+  conditions: AlertCondition[];
+  channels: string[];
+}
+
+export interface RuleState {
+  lastStable: unknown;
+  candidate: unknown;
+  candidateCount: number;
+  updatedAt: string;
+}
+
+export interface Rule {
+  id: string;
+  sourceId: string;
+  name: string;
+  ruleType: RuleType;
+  enabled: boolean;
+  healthScore: number | null;
+  lastErrorCode: string | null;
+  lastErrorAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  extraction: ExtractionConfig;
+  schedule: ScheduleConfig;
+  alertPolicy: AlertPolicy | null;
+  screenshotOnChange: boolean;
+  captchaIntervalEnforced?: boolean;
+  originalSchedule?: ScheduleConfig | null;
+  source: Source;
+  currentState?: RuleState | null;
+  latestObservations?: Observation[];
+}
+
+export interface Observation {
+  id: string;
+  ruleId: string;
+  extractedRaw: string;
+  extractedNormalized: unknown;
+  changeDetected: boolean;
+  changeKind: string | null;
+  diffSummary?: string;
+  createdAt: string;
+  run: {
+    httpStatus: number;
+    errorCode: string | null;
+    screenshotPath: string | null;
+  };
+}
+
+export interface Alert {
+  id: string;
+  ruleId: string;
+  triggeredAt: string;
+  severity: AlertSeverity;
+  title: string;
+  body: string;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+  dedupeKey: string;
+}
+
+export interface HealthSummary {
+  totalRules: number;
+  healthyRules: number;
+  warningRules: number;
+  criticalRules: number;
+  averageHealthScore: number;
+}
+
+export interface TestRuleResult {
+  success: boolean;
+  timing?: {
+    fetchMs?: number;
+  };
+  fetch?: {
+    httpStatus?: number;
+  };
+  extraction?: {
+    rawValue?: string;
+  };
+  errors?: string[];
+}
+
 // Notification Channel types
 export type ChannelType = 'email' | 'telegram' | 'slack' | 'webhook';
 
@@ -81,14 +224,14 @@ class ApiClient {
 
   // Auth
   async login(email: string, password: string) {
-    return this.request<{ accessToken: string; user: any }>('/auth/login', {
+    return this.request<AuthResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
   }
 
   async register(email: string, password: string) {
-    return this.request<{ id: string; email: string }>('/auth/register', {
+    return this.request<User>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -96,15 +239,15 @@ class ApiClient {
 
   // Workspaces
   async getWorkspaces() {
-    return this.request<any[]>('/workspaces');
+    return this.request<Workspace[]>('/workspaces');
   }
 
   async getWorkspace(id: string) {
-    return this.request<any>(`/workspaces/${id}`);
+    return this.request<Workspace>(`/workspaces/${id}`);
   }
 
-  async createWorkspace(data: { name: string; type: string }) {
-    return this.request<any>('/workspaces', {
+  async createWorkspace(data: { name: string; type: WorkspaceType }) {
+    return this.request<Workspace>('/workspaces', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -112,11 +255,11 @@ class ApiClient {
 
   // Sources
   async getSources(workspaceId: string) {
-    return this.request<any[]>(`/sources?workspaceId=${workspaceId}`);
+    return this.request<Source[]>(`/sources?workspaceId=${workspaceId}`);
   }
 
   async createSource(data: { workspaceId: string; url: string }) {
-    return this.request<any>('/sources', {
+    return this.request<Source>('/sources', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -124,47 +267,47 @@ class ApiClient {
 
   // Rules
   async getRules(workspaceId: string) {
-    return this.request<any[]>(`/rules?workspaceId=${workspaceId}`);
+    return this.request<Rule[]>(`/rules?workspaceId=${workspaceId}`);
   }
 
   async getRule(id: string) {
-    return this.request<any>(`/rules/${id}`);
+    return this.request<Rule>(`/rules/${id}`);
   }
 
-  async createRule(data: any) {
-    return this.request<any>('/rules', {
+  async createRule(data: Partial<Rule>) {
+    return this.request<Rule>('/rules', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async updateRule(id: string, data: any) {
-    return this.request<any>(`/rules/${id}`, {
+  async updateRule(id: string, data: Partial<Rule>) {
+    return this.request<Rule>(`/rules/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   async testRule(id: string) {
-    return this.request<any>(`/rules/${id}/test`, {
+    return this.request<TestRuleResult>(`/rules/${id}/test`, {
       method: 'POST',
     });
   }
 
   async pauseRule(id: string) {
-    return this.request<any>(`/rules/${id}/pause`, {
+    return this.request<Rule>(`/rules/${id}/pause`, {
       method: 'POST',
     });
   }
 
   async resumeRule(id: string) {
-    return this.request<any>(`/rules/${id}/resume`, {
+    return this.request<Rule>(`/rules/${id}/resume`, {
       method: 'POST',
     });
   }
 
   async resetRuleHealth(id: string) {
-    return this.request<any>(`/rules/${id}/reset-health`, {
+    return this.request<Rule>(`/rules/${id}/reset-health`, {
       method: 'POST',
     });
   }
@@ -177,7 +320,7 @@ class ApiClient {
 
   // Alerts
   async getAlerts(workspaceId: string) {
-    return this.request<any[]>(`/alerts?workspaceId=${workspaceId}`);
+    return this.request<Alert[]>(`/alerts?workspaceId=${workspaceId}`);
   }
 
   // Notification Channels
@@ -217,11 +360,11 @@ class ApiClient {
 
   // Health
   async getHealthSummary(workspaceId: string) {
-    return this.request<any>(`/rules/workspace/${workspaceId}/health-summary`);
+    return this.request<HealthSummary>(`/rules/workspace/${workspaceId}/health-summary`);
   }
 
   async getLowHealthRules(workspaceId: string, threshold = 50) {
-    return this.request<any[]>(`/rules/workspace/${workspaceId}/low-health?threshold=${threshold}`);
+    return this.request<Rule[]>(`/rules/workspace/${workspaceId}/low-health?threshold=${threshold}`);
   }
 }
 

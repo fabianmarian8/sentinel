@@ -4,6 +4,7 @@ import { fetchHeadless, takeElementScreenshot, type HeadlessFetchOptions } from 
 import { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 import { detectBlock } from './block-detection';
 import { isJavaScriptRequired } from './spa-detection';
+import { logger } from '../utils/logger';
 import type { FetchOptions, FetchResult } from './types';
 
 export interface SmartFetchOptions extends FetchOptions {
@@ -49,7 +50,7 @@ export async function smartFetch(
 
   // If FlareSolverr is explicitly preferred
   if (preferredMode === 'flaresolverr') {
-    console.log(`[SmartFetch] Using FlareSolverr (preferred) for ${options.url}`);
+    logger.debug(`Using FlareSolverr (preferred) for ${options.url}`);
     const result = await fetchFlareSolverr({
       ...options,
       flareSolverrUrl,
@@ -85,7 +86,7 @@ export async function smartFetch(
   }
 
   // Try HTTP first
-  console.log(`[SmartFetch] Trying HTTP for ${options.url}`);
+  logger.debug(`Trying HTTP for ${options.url}`);
   const httpResult = await fetchHttp(options);
 
   // Check if we should fallback
@@ -93,7 +94,7 @@ export async function smartFetch(
 
   if (httpResult.success && !shouldFallbackDecision.shouldFallback) {
     // HTTP succeeded and content looks good
-    console.log(`[SmartFetch] HTTP succeeded for ${options.url}`);
+    logger.debug(`HTTP succeeded for ${options.url}`);
     return {
       ...httpResult,
       modeUsed: 'http',
@@ -106,7 +107,7 @@ export async function smartFetch(
 
   // If no fallback enabled, return HTTP result
   if (!fallbackToHeadless && !fallbackToFlareSolverr) {
-    console.log(`[SmartFetch] HTTP failed but all fallbacks disabled: ${fallbackReason}`);
+    logger.warn(`HTTP failed but all fallbacks disabled: ${fallbackReason}`);
     return {
       ...httpResult,
       modeUsed: 'http',
@@ -126,7 +127,7 @@ export async function smartFetch(
   // Try FlareSolverr first - it's more reliable for Cloudflare-protected sites
   // FlareSolverr now supports screenshots via returnScreenshot parameter
   if (fallbackToFlareSolverr && needsRealBrowser) {
-    console.log(`[SmartFetch] Trying FlareSolverr: ${fallbackReason}`);
+    logger.info(`Trying FlareSolverr: ${fallbackReason}`);
 
     // Check if FlareSolverr is available
     const flareSolverrAvailable = await isFlareSolverrAvailable(flareSolverrUrl);
@@ -145,13 +146,13 @@ export async function smartFetch(
       });
 
       if (flareSolverrResult.success) {
-        console.log(`[SmartFetch] FlareSolverr succeeded for ${options.url}`);
+        logger.info(`FlareSolverr succeeded for ${options.url}`);
 
         let finalScreenshotPath = flareSolverrResult.screenshotPath || null;
 
         // If we need element screenshot, use headless with FlareSolverr's cf_clearance cookies
         if (needsElementScreenshot && options.screenshotPath && options.screenshotSelector) {
-          console.log(`[SmartFetch] Taking element screenshot with cf_clearance cookies...`);
+          logger.debug(`Taking element screenshot with cf_clearance cookies...`);
           const screenshotResult = await takeElementScreenshot({
             url: options.url,
             selector: options.screenshotSelector,
@@ -165,9 +166,9 @@ export async function smartFetch(
 
           if (screenshotResult.success) {
             finalScreenshotPath = screenshotResult.screenshotPath || null;
-            console.log(`[SmartFetch] Element screenshot captured: ${finalScreenshotPath}`);
+            logger.debug(`Element screenshot captured: ${finalScreenshotPath}`);
           } else {
-            console.log(`[SmartFetch] Element screenshot failed: ${screenshotResult.error}, using FlareSolverr full-page`);
+            logger.warn(`Element screenshot failed: ${screenshotResult.error}, using FlareSolverr full-page`);
             // Fallback: request full-page screenshot from FlareSolverr
             if (!finalScreenshotPath) {
               const retryResult = await fetchFlareSolverr({
@@ -192,15 +193,15 @@ export async function smartFetch(
         };
       }
 
-      console.log(`[SmartFetch] FlareSolverr failed, trying headless...`);
+      logger.warn(`FlareSolverr failed, trying headless...`);
     } else {
-      console.log(`[SmartFetch] FlareSolverr not available, trying headless...`);
+      logger.debug(`FlareSolverr not available, trying headless...`);
     }
   }
 
   // Fallback to headless browser
   if (fallbackToHeadless) {
-    console.log(`[SmartFetch] Falling back to headless: ${fallbackReason}`);
+    logger.info(`Falling back to headless: ${fallbackReason}`);
     const { cookies, ...restOptions } = options;
     const headlessOptions: HeadlessFetchOptions = {
       ...restOptions,
