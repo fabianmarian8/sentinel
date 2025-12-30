@@ -382,11 +382,11 @@ export class NotificationChannelsService {
             throw new BadRequestException('OneSignal not configured on server');
           }
 
-          const response = await fetch('https://api.onesignal.com/notifications', {
+          const response = await fetch('https://onesignal.com/api/v1/notifications', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Key ${apiKey}`,
+              'Authorization': `Basic ${apiKey}`,
             },
             body: JSON.stringify({
               app_id: appId,
