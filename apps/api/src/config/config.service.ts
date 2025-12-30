@@ -72,4 +72,12 @@ export class ConfigService {
   get slackClientSecret(): string {
     return process.env.SLACK_CLIENT_SECRET || '';
   }
+
+  get oneSignalAppId(): string {
+    return process.env.ONESIGNAL_APP_ID || '';
+  }
+
+  get oneSignalRestApiKey(): string {
+    return process.env.ONESIGNAL_REST_API_KEY || '';
+  }
 }

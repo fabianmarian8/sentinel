@@ -374,6 +374,42 @@ export class NotificationChannelsService {
           return { success: true, message: 'Test notification sent to webhook' };
         }
 
+        case 'push': {
+          const appId = this.config.oneSignalAppId;
+          const apiKey = this.config.oneSignalRestApiKey;
+
+          if (!appId || !apiKey) {
+            throw new BadRequestException('OneSignal not configured on server');
+          }
+
+          const response = await fetch('https://api.onesignal.com/notifications', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Key ${apiKey}`,
+            },
+            body: JSON.stringify({
+              app_id: appId,
+              include_subscription_ids: [config.playerId],
+              contents: { en: '🧪 Test notification from Sentinel' },
+              headings: { en: 'Sentinel Test' },
+              data: {
+                type: 'test',
+                workspace: channel.workspace.name,
+                channel: channel.name,
+              },
+            }),
+          });
+
+          const data = await response.json() as any;
+
+          if (!response.ok || data.errors) {
+            throw new BadRequestException(`OneSignal error: ${JSON.stringify(data.errors || data)}`);
+          }
+
+          return { success: true, message: 'Test push notification sent' };
+        }
+
         default:
           return { success: false, message: `Channel type ${channel.type} not supported for testing` };
       }
