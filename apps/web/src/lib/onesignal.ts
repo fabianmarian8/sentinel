@@ -1,6 +1,6 @@
 const ONESIGNAL_APP_ID = 'd2a6756a-e9d6-4162-9c86-0869bde9328b';
-// Use Cloudflare Workers proxy to bypass ad blockers
-const ONESIGNAL_PROXY_URL = 'https://onesignal-proxy.fabianmarian8.workers.dev';
+// SDK uses local proxy at /api/onesignal/* via Cloudflare Pages Function
+// This bypasses ad blockers by keeping all requests on the same domain
 
 let isInitialized = false;
 let initPromise: Promise<void> | null = null;
