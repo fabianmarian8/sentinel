@@ -1,0 +1,36 @@
+{
+  "version": 3,
+  "middleware": {},
+  "functions": {
+    "/dashboard/rules/[id]/page": {
+      "files": [
+        "server/server-reference-manifest.js",
+        "server/app/dashboard/rules/[id]/page_client-reference-manifest.js",
+        "server/middleware-build-manifest.js",
+        "server/middleware-react-loadable-manifest.js",
+        "server/next-font-manifest.js",
+        "server/interception-route-rewrite-manifest.js",
+        "server/edge-runtime-webpack.js",
+        "server/app/dashboard/rules/[id]/page.js"
+      ],
+      "name": "app/dashboard/rules/[id]/page",
+      "page": "/dashboard/rules/[id]/page",
+      "matchers": [
+        {
+          "regexp": "^/dashboard/rules/(?<id>[^/]+?)$",
+          "originalSource": "/dashboard/rules/[id]"
+        }
+      ],
+      "wasm": [],
+      "assets": [],
+      "env": {
+        "__NEXT_BUILD_ID": "RIx0eYzw4_cG4H7Rc2ZqE",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "bRMIFJO3KjGlsfdBf/rQ4TtmjjS7DUDEc6BkYxMhXeU=",
+        "__NEXT_PREVIEW_MODE_ID": "40a3b0bdce4295f5e715a4767fe6dd85",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "8848f547affb78e4bbeb3a63894d1a69f44b9622339d0f57123c98fd4382f892",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "d94e2500c1a23754ec1a2b3b24bc380d584d26d0734ce4d78cb1a3bda418b116"
+      }
+    }
+  },
+  "sortedMiddleware": []
+}

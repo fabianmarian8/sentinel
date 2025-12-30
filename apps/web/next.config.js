@@ -8,6 +8,15 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://sentinel.taxinearme.sk/api',
   },
+  // Proxy OneSignal API requests through Cloudflare Worker to bypass ad blockers
+  async rewrites() {
+    return [
+      {
+        source: '/api/onesignal/:path*',
+        destination: 'https://onesignal-proxy.fabianmarian8.workers.dev/:path*',
+      },
+    ];
+  },
   // Fix aggressive Cloudflare caching
   async headers() {
     return [
