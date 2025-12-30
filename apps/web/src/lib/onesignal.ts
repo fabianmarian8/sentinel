@@ -47,9 +47,10 @@ function loadOneSignalScript(): Promise<void> {
     // Initialize deferred array
     window.OneSignalDeferred = window.OneSignalDeferred || [];
 
-    // Create and load script via proxy to bypass ad blockers
+    // Load SDK from local files to avoid ad blockers
+    // Files: OneSignalSDK.page.js (loader) -> OneSignalSDK.page.es6.js (main)
     const script = document.createElement('script');
-    script.src = `${ONESIGNAL_PROXY_URL}/sdks/web/v16/OneSignalSDK.page.js`;
+    script.src = '/OneSignalSDK.page.js';
     script.defer = true;
 
     script.onload = () => {
@@ -95,6 +96,23 @@ export async function initOneSignal(): Promise<void> {
         allowLocalhostAsSecureOrigin: true,
         serviceWorkerParam: { scope: '/' },
         serviceWorkerPath: '/OneSignalSDKWorker.js',
+        // CRITICAL: Disable auto-prompt - modern browsers require user gesture
+        promptOptions: {
+          slidedown: {
+            prompts: [{
+              type: "push",
+              autoPrompt: false, // Must be triggered manually on user click!
+              text: {
+                actionMessage: "Would you like to receive push notifications?",
+                acceptButton: "Allow",
+                cancelButton: "No thanks"
+              }
+            }]
+          }
+        },
+        notifyButton: {
+          enable: false // Disable default bell button
+        }
       });
 
       isInitialized = true;
@@ -120,8 +138,27 @@ export async function requestPushPermission(): Promise<string | null> {
       return null;
     }
 
-    // Request permission
-    await window.OneSignal.Notifications.requestPermission();
+    // Check current permission status first
+    const currentPermission = await window.OneSignal.Notifications.permission;
+
+    if (currentPermission === true) {
+      // Already granted, just get player ID
+      const playerId = await window.OneSignal.User.PushSubscription.id;
+      return playerId || null;
+    }
+
+    // Use Slidedown prompt (shows custom UI first, then native prompt)
+    // This works better with modern browsers that require user gesture
+    try {
+      await window.OneSignal.Slidedown.promptPush();
+    } catch (slidedownError) {
+      console.log('Slidedown not available, trying direct permission request');
+      // Fallback to direct permission request (must be called from user gesture)
+      await window.OneSignal.Notifications.requestPermission();
+    }
+
+    // Wait a bit for permission to be processed
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Check if permission granted
     const permission = await window.OneSignal.Notifications.permission;
