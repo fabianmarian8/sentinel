@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import api, { NotificationChannel, ChannelType, CreateNotificationChannelDto, SlackChannel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { requestPushPermission, isPushEnabled, getPlayerId, initOneSignal } from '@/lib/onesignal';
 
 const CHANNEL_TYPES: { value: ChannelType; label: string; icon: string; description: string }[] = [
   { value: 'email', label: 'Email', icon: '📧', description: 'Receive alerts via email' },
@@ -322,6 +323,21 @@ function AddChannelModal({
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Check push notification status on modal open
+  useEffect(() => {
+    const checkPushStatus = async () => {
+      const enabled = await isPushEnabled();
+      if (enabled) {
+        const playerId = await getPlayerId();
+        if (playerId) {
+          setPushEnabled(true);
+          setPushPlayerId(playerId);
+        }
+      }
+    };
+    checkPushStatus();
+  }, []);
+
   const handleConnectSlack = async () => {
     try {
       const redirectUri = `${window.location.origin}/oauth/slack/callback`;
@@ -337,9 +353,19 @@ function AddChannelModal({
   };
 
   const handleEnablePush = async () => {
-    // TODO: Integrate OneSignal SDK
-    // For now, just show a placeholder
-    setError('Push notifications require OneSignal SDK integration. Coming soon!');
+    try {
+      setError(null);
+      // Initialize OneSignal and request permission
+      const playerId = await requestPushPermission();
+      if (playerId) {
+        setPushPlayerId(playerId);
+        setPushEnabled(true);
+      } else {
+        setError('Push notifications permission denied or unavailable');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to enable push notifications');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

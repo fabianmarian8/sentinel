@@ -15,7 +15,8 @@
     "@sentinel/shared": "workspace:*",
     "next": "^14.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-onesignal": "^3.4.4"
   },
   "devDependencies": {
     "@cloudflare/next-on-pages": "^1.13.16",

@@ -734,10 +734,10 @@ export class AlertProcessor extends WorkerHost {
         return { success: false, error: 'Push player ID not configured' };
       }
 
-      const response = await fetch('https://onesignal.com/api/v1/notifications', {
+      const response = await fetch('https://api.onesignal.com/notifications', {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${oneSignalApiKey}`,
+          'Authorization': `Key ${oneSignalApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
