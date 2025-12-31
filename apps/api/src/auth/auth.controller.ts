@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import {
@@ -22,6 +23,15 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+
+interface RequestWithUser extends Request {
+  user: {
+    id: string;
+    email: string;
+    createdAt: Date;
+    lastLoginAt: Date | null;
+  };
+}
 
 @ApiTags('auth')
 @Controller('auth')
@@ -71,7 +81,7 @@ export class AuthController {
   @ApiUnauthorizedResponse({
     description: 'Unauthorized - invalid or missing token',
   })
-  async getMe(@Req() req: any) {
+  async getMe(@Req() req: RequestWithUser) {
     return req.user;
   }
 }
