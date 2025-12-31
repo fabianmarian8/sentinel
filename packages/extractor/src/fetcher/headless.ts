@@ -1131,25 +1131,25 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         }
       }
 
-      // Load page content - prefer pre-fetched HTML from FlareSolverr
-      if (options.html) {
-        // Navigate to URL first to get correct base URL for CSS/resources
-        // Then replace content with pre-fetched HTML
-        try {
-          await page.goto(options.url, {
-            timeout: options.timeout || 30000,
-            waitUntil: 'domcontentloaded'
-          });
-        } catch {
-          // If navigation fails (e.g., timeout), continue with setContent anyway
-        }
-        // Replace with pre-fetched HTML (faster, already rendered by FlareSolverr)
+      // Load page content
+      // If we have cookies from FlareSolverr, navigate with cookies (most reliable)
+      // setContent doesn't work well because it lacks base URL and JS execution
+      if (options.cookies) {
+        console.log('[ElementScreenshot] Navigating with FlareSolverr cookies');
+        await page.goto(options.url, {
+          timeout: options.timeout || 30000,
+          waitUntil: 'networkidle'
+        });
+        // Wait for dynamic content to render
+        await page.waitForTimeout(3000);
+      } else if (options.html) {
+        // Fallback: Use setContent if we have HTML but no cookies
+        // This is less reliable but better than nothing
         await page.setContent(options.html, {
           timeout: options.timeout || 30000,
           waitUntil: 'domcontentloaded'
         });
-        console.log('[ElementScreenshot] Using pre-fetched HTML');
-        // Wait for resources to load
+        console.log('[ElementScreenshot] Using pre-fetched HTML (no cookies)');
         await page.waitForTimeout(2000);
       } else {
         // Navigate to page - use networkidle for SPA sites
