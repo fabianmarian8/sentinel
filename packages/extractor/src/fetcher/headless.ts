@@ -1269,15 +1269,9 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         return { success: true, screenshotPath: options.outputPath };
       }
 
-      // Element not found, take full page
-      console.log(`[ElementScreenshot] Element not found, taking full page screenshot`);
-      await page.screenshot({
-        path: options.outputPath,
-        fullPage: false, // Just viewport, not full page
-        type,
-        quality,
-      });
-      return { success: true, screenshotPath: options.outputPath };
+      // Element not found - return failure to trigger FlareSolverr fallback
+      console.log(`[ElementScreenshot] Element not found, returning failure for FlareSolverr fallback`);
+      return { success: false, error: `Selector not found: ${options.selector}` };
 
     } catch (error) {
       const err = error as Error;
