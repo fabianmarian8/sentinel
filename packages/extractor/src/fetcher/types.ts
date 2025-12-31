@@ -1,6 +1,17 @@
 // HTTP fetcher types
 import type { ErrorCode } from '@sentinel/shared';
 
+/**
+ * Screenshot validation result - indicates if content is readable
+ */
+export interface ScreenshotValidationResult {
+  isReadable: boolean;
+  issues: string[];
+  cookieBannerDetected: boolean;
+  overlayDetected: boolean;
+  contentBlocked: boolean;
+}
+
 export interface FetchResult {
   success: boolean;
   url: string;
@@ -20,6 +31,8 @@ export interface FetchResult {
   screenshotPath?: string | null;
   // FlareSolverr specific - indicates if CAPTCHA was solved (paid service)
   flareSolverrMessage?: string;
+  // Screenshot validation - indicates if screenshot is readable
+  screenshotValidation?: ScreenshotValidationResult;
 }
 
 export interface FetchOptions {

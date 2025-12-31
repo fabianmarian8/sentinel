@@ -1,8 +1,52 @@
-// Playwright headless browser fetcher
-import { chromium, type Browser, type BrowserContext, type Route } from 'playwright-core';
+// Playwright headless browser fetcher with cookie consent handling
+import { chromium, type Browser, type BrowserContext, type Route, type Page } from 'playwright-core';
+import { PlaywrightBlocker } from '@ghostery/adblocker-playwright';
 import type { FetchResult, FetchOptions } from './types';
 import type { ErrorCode } from '@sentinel/shared';
 import { getRandomUserAgent } from './user-agents';
+
+// Singleton blocker instance (loaded once, reused)
+let blockerInstance: PlaywrightBlocker | null = null;
+let blockerPromise: Promise<PlaywrightBlocker> | null = null;
+
+/**
+ * Get or create the adblocker instance
+ * Uses Fanboy Cookie Monster list for cookie consent blocking
+ */
+async function getBlocker(): Promise<PlaywrightBlocker> {
+  if (blockerInstance) {
+    return blockerInstance;
+  }
+
+  if (blockerPromise) {
+    return blockerPromise;
+  }
+
+  blockerPromise = (async () => {
+    try {
+      // Load blocker with cookie-focused filter lists
+      const blocker = await PlaywrightBlocker.fromLists(fetch, [
+        // Fanboy's Cookie Monster List - best for cookie consent
+        'https://secure.fanboy.co.nz/fanboy-cookiemonster.txt',
+        // EasyList Cookie List
+        'https://easylist-downloads.adblockplus.org/easylist-cookie.txt',
+        // I don't care about cookies
+        'https://www.i-dont-care-about-cookies.eu/abp/',
+      ]);
+
+      blockerInstance = blocker;
+      console.log('[CookieBlocker] Initialized with cookie filter lists');
+      return blocker;
+    } catch (error) {
+      console.error('[CookieBlocker] Failed to load filter lists:', error);
+      // Return empty blocker as fallback
+      blockerInstance = await PlaywrightBlocker.empty();
+      return blockerInstance;
+    }
+  })();
+
+  return blockerPromise;
+}
 
 export interface HeadlessFetchOptions extends Omit<FetchOptions, 'cookies'> {
   renderWaitMs?: number;      // Wait after page load (default 2000)
@@ -10,6 +54,7 @@ export interface HeadlessFetchOptions extends Omit<FetchOptions, 'cookies'> {
   screenshotOnChange?: boolean;
   screenshotPath?: string;
   screenshotSelector?: string; // Capture only this element (smaller file size)
+  screenshotQuality?: number; // JPEG quality 0-100 (default 80)
   blockResources?: ('image' | 'stylesheet' | 'font' | 'media')[];
   cookies?: { name: string; value: string; domain: string; path?: string }[];
 }
@@ -261,6 +306,7 @@ function classifyError(error: Error): ErrorCode {
 
 /**
  * Fetch a URL using Playwright headless browser
+ * Includes cookie consent blocking and screenshot validation
  */
 export async function fetchHeadless(options: HeadlessFetchOptions): Promise<FetchResult> {
   const browser = await getBrowser();
@@ -289,6 +335,15 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
     const startTime = Date.now();
 
     try {
+      // === LAYER 1: Enable adblocker for cookie consent scripts ===
+      try {
+        const blocker = await getBlocker();
+        await blocker.enableBlockingInPage(page);
+        console.log('[fetchHeadless] Cookie blocker enabled');
+      } catch (blockerError) {
+        console.warn('[fetchHeadless] Failed to enable blocker:', blockerError);
+      }
+
       // Block unnecessary resources for speed
       if (options.blockResources?.length) {
         await page.route('**/*', (route: Route) => {
@@ -312,6 +367,9 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
         await page.waitForTimeout(options.renderWaitMs);
       }
 
+      // === LAYER 2-4: Remove any cookie banners that got through ===
+      await removeCookieBanners(page);
+
       // Wait for specific selector
       if (options.waitForSelector) {
         await page.waitForSelector(options.waitForSelector, {
@@ -324,11 +382,33 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
 
       // Screenshot if requested
       let screenshotPath = null;
+      let screenshotValidation: ScreenshotValidation | undefined;
+
       if (options.screenshotOnChange && options.screenshotPath) {
+        // === CONTROL LAYER: Validate before screenshot ===
+        screenshotValidation = await validateScreenshot(page, options.screenshotSelector);
+
+        if (!screenshotValidation.isReadable) {
+          console.warn('[fetchHeadless] Screenshot validation issues:', screenshotValidation.issues);
+          // Try one more aggressive cleanup pass
+          await removeCookieBanners(page);
+          await page.waitForTimeout(300);
+          // Re-validate
+          screenshotValidation = await validateScreenshot(page, options.screenshotSelector);
+        }
+
+        // Screenshot settings - use JPEG for smaller file sizes
+        const screenshotQuality = options.screenshotQuality ?? 80;
+        const screenshotType = 'jpeg' as const;
+
         // If selector provided, screenshot element with padding (~200px = ~5cm context)
         if (options.screenshotSelector) {
           const element = await page.$(options.screenshotSelector);
           if (element) {
+            // Scroll into view first
+            await element.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(300);
+
             const box = await element.boundingBox();
             if (box) {
               // Add 200px padding around element (clamped to viewport)
@@ -343,11 +423,15 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
               await page.screenshot({
                 path: options.screenshotPath,
                 clip,
+                type: screenshotType,
+                quality: screenshotQuality,
               });
             } else {
               // Element has no bounding box, screenshot element directly
               await element.screenshot({
                 path: options.screenshotPath,
+                type: screenshotType,
+                quality: screenshotQuality,
               });
             }
             screenshotPath = options.screenshotPath;
@@ -355,7 +439,9 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
             // Fallback to full page if element not found
             await page.screenshot({
               path: options.screenshotPath,
-              fullPage: true
+              fullPage: true,
+              type: screenshotType,
+              quality: screenshotQuality,
             });
             screenshotPath = options.screenshotPath;
           }
@@ -363,9 +449,16 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
           // Full page screenshot
           await page.screenshot({
             path: options.screenshotPath,
-            fullPage: true
+            fullPage: true,
+            type: screenshotType,
+            quality: screenshotQuality,
           });
           screenshotPath = options.screenshotPath;
+        }
+
+        // Log validation result
+        if (screenshotValidation && !screenshotValidation.isReadable) {
+          console.warn(`[fetchHeadless] Screenshot may have issues: ${screenshotValidation.issues.join(', ')}`);
         }
       }
 
@@ -384,7 +477,14 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
           total: endTime - startTime
         },
         headers: response?.headers() || {},
-        screenshotPath
+        screenshotPath,
+        screenshotValidation: screenshotValidation ? {
+          isReadable: screenshotValidation.isReadable,
+          issues: screenshotValidation.issues,
+          cookieBannerDetected: screenshotValidation.cookieBannerDetected,
+          overlayDetected: screenshotValidation.overlayDetected,
+          contentBlocked: screenshotValidation.contentBlocked,
+        } : undefined,
       };
 
     } catch (error) {
@@ -417,61 +517,443 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
 }
 
 /**
- * Common cookie banner selectors to auto-dismiss
+ * Common cookie banner selectors to auto-dismiss (Accept/OK buttons)
+ * Ordered by prevalence - most common first for faster detection
  */
 const COOKIE_BANNER_SELECTORS = [
-  // Common cookie consent buttons (accept/agree)
-  'button[id*="accept"]',
-  'button[id*="agree"]',
-  'button[id*="cookie"]',
-  'button[class*="accept"]',
-  'button[class*="agree"]',
-  'button[class*="cookie-accept"]',
-  'button[class*="consent"]',
-  '[data-testid*="accept"]',
-  '[data-testid*="cookie"]',
-  // Common frameworks
-  '.cc-btn.cc-dismiss', // Cookie Consent
-  '.cky-btn-accept', // CookieYes
+  // === Most common cookie consent frameworks ===
+  '#onetrust-accept-btn-handler', // OneTrust (very common)
   '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', // Cookiebot
-  '#onetrust-accept-btn-handler', // OneTrust
-  '.js-cookie-consent-agree', // Generic
-  // Alza-specific
-  '.cookies-info__button',
+  '#CybotCookiebotDialogBodyButtonAccept', // Cookiebot alternative
+  '.cky-btn-accept', // CookieYes
+  '.cc-btn.cc-dismiss', // Cookie Consent (osano)
+  '.cc-accept-all', // Cookie Consent alternative
+  '[data-consent="accept"]', // Generic data attribute
+  '[data-action="accept"]', // Generic data attribute
+
+  // === Generic patterns (high success rate) ===
+  'button[id*="accept"][id*="cookie"]',
+  'button[id*="accept"][id*="consent"]',
+  'button[id*="accept-all"]',
+  'button[id*="acceptAll"]',
+  'button[class*="accept"][class*="cookie"]',
+  'button[class*="accept"][class*="consent"]',
+  'button[class*="accept-all"]',
+  'button[class*="acceptAll"]',
+
+  // === Data-testid patterns ===
+  '[data-testid*="accept"]',
+  '[data-testid*="cookie-accept"]',
+  '[data-testid*="consent-accept"]',
   '[data-testid="cookies-accept-all"]',
+
+  // === Aria label patterns ===
+  'button[aria-label*="Accept"]',
+  'button[aria-label*="Akceptovať"]', // Slovak
+  'button[aria-label*="Súhlasím"]', // Slovak
+  'button[aria-label*="Přijmout"]', // Czech
+  'button[aria-label*="Zgadzam"]', // Polish
+
+  // === Text-based patterns (less reliable but comprehensive) ===
+  'button[id*="agree"]',
+  'button[id*="ok-cookie"]',
+  'button[class*="agree"]',
+  'button[class*="consent"]',
+  '.js-cookie-consent-agree',
+
+  // === Slovak/Czech e-commerce sites ===
+  '.cookies-info__button',
   '.btn-cookie-ok',
-  // Nike-specific
+  '.cookie-accept-btn',
+  '.gdpr-accept',
+  '[data-gdpr="accept"]',
+
+  // === Major retailers ===
+  // Alza
+  '[data-testid="cookies-accept-all"]',
+  '.cookies-consent__button--accept',
+  // Nike
   '[data-testid="modal-accept-button"]',
-  'button[aria-label="Accept All"]',
   '.modal-actions-accept-btn',
   'button.nds-btn.modal-actions-accept-btn',
+  // Amazon
+  '#sp-cc-accept',
+  // eBay
+  '#gdpr-banner-accept',
+
+  // === Fallback broad patterns ===
+  'button[id*="accept"]',
+  'button[id*="cookie"]',
+  'button[class*="cookie-accept"]',
 ];
 
 /**
- * Common cookie banner container selectors to hide
+ * Common cookie banner container selectors to hide via CSS
+ * These are hidden after attempting to click accept buttons
  */
 const COOKIE_BANNER_CONTAINERS = [
+  // === Major frameworks ===
+  '#onetrust-consent-sdk',
+  '#onetrust-banner-sdk',
+  '[id*="CybotCookiebot"]',
+  '#cookieyes-container',
+  '.cc-window', // Cookie Consent
+  '#cookie-law-info-bar', // Cookie Law Info
+  '#gdpr-cookie-message',
+
+  // === Generic patterns ===
   '#cookie-consent',
   '#cookie-banner',
+  '#cookie-popup',
+  '#cookie-modal',
+  '#cookie-notice',
   '#cookies',
   '.cookie-consent',
   '.cookie-banner',
+  '.cookie-popup',
+  '.cookie-modal',
+  '.cookie-notice',
   '.cookies-overlay',
   '.gdpr-consent',
+  '.gdpr-banner',
+  '.privacy-consent',
+  '.consent-banner',
+  '.consent-modal',
+  '.consent-popup',
+
+  // === Attribute patterns ===
   '[class*="cookie-consent"]',
   '[class*="cookie-banner"]',
+  '[class*="cookie-popup"]',
+  '[class*="cookie-modal"]',
+  '[class*="gdpr-"]',
+  '[class*="consent-banner"]',
+  '[class*="consent-modal"]',
   '[id*="cookie-consent"]',
-  '[id*="CybotCookiebot"]',
-  '#onetrust-consent-sdk',
-  // Alza-specific
+  '[id*="cookie-banner"]',
+  '[id*="gdpr"]',
+  '[data-cookie-consent]',
+  '[data-gdpr]',
+
+  // === Slovak/Czech sites ===
   '.cookies-info',
   '.cookies-dialog',
-  // Nike-specific
+  '.cookies-bar',
+  '.ochrana-osobnych-udajov',
+  '[class*="ochrana"]',
+
+  // === Nike/major brands ===
   '[data-testid="privacy-modal"]',
   '.privacy-modal',
   '.modal-container[class*="privacy"]',
-  '[class*="consent-modal"]',
+
+  // === Overlay/backdrop patterns ===
+  '.cookie-overlay',
+  '.consent-overlay',
+  '.gdpr-overlay',
+  '[class*="cookie"][class*="overlay"]',
+  '[class*="consent"][class*="overlay"]',
 ];
+
+/**
+ * CSS to inject for hiding cookie banners completely
+ * More aggressive than just display:none
+ */
+const COOKIE_HIDE_CSS = `
+${COOKIE_BANNER_CONTAINERS.map(s => `${s}`).join(',\n')} {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  left: -9999px !important;
+}
+
+/* Remove any backdrop/overlay that might block content */
+.cookie-overlay,
+.consent-overlay,
+.gdpr-overlay,
+[class*="cookie"][class*="overlay"],
+[class*="consent"][class*="backdrop"],
+body.cookie-modal-open,
+body.consent-modal-open,
+html.cookie-modal-open {
+  overflow: auto !important;
+}
+
+/* Reset any body scroll lock from cookie modals */
+body[style*="overflow: hidden"],
+html[style*="overflow: hidden"] {
+  overflow: auto !important;
+}
+`;
+
+/**
+ * Result of screenshot validation
+ */
+export interface ScreenshotValidation {
+  isReadable: boolean;
+  issues: string[];
+  cookieBannerDetected: boolean;
+  overlayDetected: boolean;
+  contentBlocked: boolean;
+}
+
+/**
+ * Comprehensive cookie banner removal
+ * Uses multi-layer approach:
+ * 1. Adblocker blocks scripts before they load
+ * 2. Click accept buttons
+ * 3. Remove DOM elements
+ * 4. Inject hiding CSS
+ */
+async function removeCookieBanners(page: Page): Promise<{ clicked: boolean; removed: number }> {
+  let clicked = false;
+  let removed = 0;
+
+  try {
+    // Layer 1: Try clicking accept buttons (most reliable)
+    for (const selector of COOKIE_BANNER_SELECTORS) {
+      try {
+        const btn = await page.$(selector);
+        if (btn && await btn.isVisible()) {
+          try {
+            await Promise.race([
+              btn.click({ timeout: 2000 }),
+              page.waitForNavigation({ timeout: 3000 }).catch(() => {}),
+            ]);
+            console.log(`[CookieBanner] Clicked accept button: ${selector}`);
+            clicked = true;
+            await page.waitForTimeout(500); // Wait for animation
+            break;
+          } catch {
+            // Click failed, try next
+          }
+        }
+      } catch {
+        // Selector not found, continue
+      }
+    }
+
+    // Layer 2: Remove cookie banner elements from DOM
+    // (may fail if navigation occurred from clicking accept)
+    let removedCount = 0;
+    try {
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+    } catch {
+      // Ignore load state errors
+    }
+
+    try {
+      removedCount = await page.evaluate((containers) => {
+        let count = 0;
+        for (const selector of containers) {
+          try {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(el => {
+              el.remove();
+              count++;
+            });
+          } catch {
+            // Invalid selector, skip
+          }
+        }
+
+        // Also remove elements by text content (Slovak/Czech)
+        const textPatterns = [
+          'súhlas',
+          'cookies',
+          'ochrana osobných údajov',
+          'súbory cookie',
+          'soubory cookie',
+          'gdpr',
+          'privacy policy',
+          'consent',
+        ];
+
+        // Find modal/dialog elements with privacy-related text
+        document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .popup, .overlay').forEach(el => {
+          const text = el.textContent?.toLowerCase() || '';
+          if (textPatterns.some(p => text.includes(p)) && text.length < 5000) {
+            el.remove();
+            count++;
+          }
+        });
+
+        // Remove any fixed position elements that look like banners
+        document.querySelectorAll('[style*="position: fixed"], [style*="position:fixed"]').forEach(el => {
+          const text = el.textContent?.toLowerCase() || '';
+          if (textPatterns.some(p => text.includes(p)) && text.length < 2000) {
+            (el as HTMLElement).style.display = 'none';
+            count++;
+          }
+        });
+
+        return count;
+      }, COOKIE_BANNER_CONTAINERS);
+
+      removed = removedCount;
+    } catch {
+      // Navigation may have destroyed context, continue
+    }
+
+    // Layer 3: Inject CSS to hide any remaining banners
+    try {
+      await page.addStyleTag({ content: COOKIE_HIDE_CSS });
+    } catch {
+      // May fail after navigation
+    }
+
+    // Layer 4: Reset body scroll if locked
+    try {
+      await page.evaluate(() => {
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+        document.body.classList.remove('modal-open', 'cookie-modal-open', 'consent-modal-open', 'no-scroll');
+      });
+    } catch {
+      // May fail after navigation
+    }
+
+    if (clicked || removed > 0) {
+      console.log(`[CookieBanner] Removed: clicked=${clicked}, elements=${removed}`);
+    }
+  } catch (error) {
+    console.warn('[CookieBanner] Error removing banners:', error);
+  }
+
+  return { clicked, removed };
+}
+
+/**
+ * Validate screenshot for readability issues
+ * Detects overlay elements, blocked content, and cookie banners
+ */
+async function validateScreenshot(page: Page, targetSelector?: string): Promise<ScreenshotValidation> {
+  const result: ScreenshotValidation = {
+    isReadable: true,
+    issues: [],
+    cookieBannerDetected: false,
+    overlayDetected: false,
+    contentBlocked: false,
+  };
+
+  try {
+    const validation = await page.evaluate((args) => {
+      const { targetSelector, containerSelectors } = args;
+      const issues: string[] = [];
+      let cookieBannerDetected = false;
+      let overlayDetected = false;
+      let contentBlocked = false;
+
+      // Check for visible cookie banners
+      for (const selector of containerSelectors) {
+        try {
+          const el = document.querySelector(selector);
+          if (el && el instanceof Element) {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = style.display !== 'none' &&
+                             style.visibility !== 'hidden' &&
+                             parseFloat(style.opacity) > 0 &&
+                             rect.width > 0 &&
+                             rect.height > 0;
+            if (isVisible) {
+              cookieBannerDetected = true;
+              issues.push(`Cookie banner detected: ${selector}`);
+            }
+          }
+        } catch {
+          // Skip invalid selectors or detached elements
+        }
+      }
+
+      // Check for overlay elements covering viewport
+      const overlayElements = document.querySelectorAll(
+        '[style*="position: fixed"], [style*="position:fixed"], ' +
+        '[class*="overlay"], [class*="backdrop"], [class*="modal-backdrop"]'
+      );
+
+      overlayElements.forEach(el => {
+        try {
+          if (!(el instanceof Element)) return;
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const coversScreen = rect.width >= window.innerWidth * 0.8 &&
+                              rect.height >= window.innerHeight * 0.8;
+          const isVisible = style.display !== 'none' &&
+                           style.visibility !== 'hidden' &&
+                           parseFloat(style.opacity) > 0.3;
+
+          if (coversScreen && isVisible) {
+            overlayDetected = true;
+            issues.push(`Overlay element detected: ${el.className || el.id || 'unknown'}`);
+          }
+        } catch {
+          // Element might be detached, skip
+        }
+      });
+
+      // Check if target element is blocked by overlays
+      if (targetSelector) {
+        const target = document.querySelector(targetSelector);
+        if (target) {
+          const targetRect = target.getBoundingClientRect();
+          const centerX = targetRect.left + targetRect.width / 2;
+          const centerY = targetRect.top + targetRect.height / 2;
+
+          // Get element at center point of target
+          const elementAtPoint = document.elementFromPoint(centerX, centerY);
+          if (elementAtPoint && !target.contains(elementAtPoint) && elementAtPoint !== target) {
+            // Check if blocking element is an overlay/modal
+            const blockingClasses = elementAtPoint.className?.toLowerCase() || '';
+            const isOverlay = blockingClasses.includes('overlay') ||
+                             blockingClasses.includes('modal') ||
+                             blockingClasses.includes('cookie') ||
+                             blockingClasses.includes('consent') ||
+                             blockingClasses.includes('backdrop');
+
+            if (isOverlay) {
+              contentBlocked = true;
+              issues.push(`Target element blocked by: ${blockingClasses}`);
+            }
+          }
+        }
+      }
+
+      // Check body scroll lock
+      const bodyStyle = window.getComputedStyle(document.body);
+      if (bodyStyle.overflow === 'hidden' || bodyStyle.position === 'fixed') {
+        issues.push('Body scroll is locked (possible modal open)');
+      }
+
+      return {
+        issues,
+        cookieBannerDetected,
+        overlayDetected,
+        contentBlocked,
+      };
+    }, {
+      targetSelector,
+      containerSelectors: COOKIE_BANNER_CONTAINERS,
+    });
+
+    result.issues = validation.issues;
+    result.cookieBannerDetected = validation.cookieBannerDetected;
+    result.overlayDetected = validation.overlayDetected;
+    result.contentBlocked = validation.contentBlocked;
+    result.isReadable = !validation.cookieBannerDetected &&
+                        !validation.overlayDetected &&
+                        !validation.contentBlocked;
+
+  } catch (error) {
+    result.issues.push(`Validation error: ${error}`);
+  }
+
+  return result;
+}
 
 export interface ElementScreenshotOptions {
   url: string;
@@ -482,6 +964,7 @@ export interface ElementScreenshotOptions {
   dismissCookies?: boolean; // Default true
   userAgent?: string;
   cookies?: string;        // Cookie header string from FlareSolverr
+  quality?: number;        // JPEG quality 0-100 (default 80)
 }
 
 /**
@@ -532,6 +1015,16 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
     const page = await context.newPage();
 
     try {
+      // Enable adblocker if dismissing cookies
+      if (dismissCookies) {
+        try {
+          const blocker = await getBlocker();
+          await blocker.enableBlockingInPage(page);
+        } catch (blockerError) {
+          console.warn('[ElementScreenshot] Failed to enable blocker:', blockerError);
+        }
+      }
+
       // Navigate to page
       await page.goto(options.url, {
         timeout: options.timeout || 30000,
@@ -541,55 +1034,9 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       // Wait a bit for page to render
       await page.waitForTimeout(2000);
 
-      // Try to dismiss cookie banners
+      // Use comprehensive cookie banner removal
       if (dismissCookies) {
-        // First try clicking accept buttons
-        let cookieClicked = false;
-        for (const selector of COOKIE_BANNER_SELECTORS) {
-          try {
-            const btn = await page.$(selector);
-            if (btn && await btn.isVisible()) {
-              // Some cookie buttons trigger navigation - handle both cases
-              try {
-                await Promise.race([
-                  btn.click(),
-                  page.waitForNavigation({ timeout: 3000 }).catch(() => {}),
-                ]);
-                console.log(`[ElementScreenshot] Clicked cookie button: ${selector}`);
-                cookieClicked = true;
-
-                // Wait for potential navigation/reload to complete
-                await page.waitForLoadState('domcontentloaded').catch(() => {});
-                await page.waitForTimeout(1000);
-              } catch (clickError) {
-                console.log(`[ElementScreenshot] Cookie click error: ${clickError}`);
-              }
-              break;
-            }
-          } catch {
-            // Ignore, try next
-          }
-        }
-
-        // Then hide any remaining banners via CSS (only if page didn't navigate away)
-        try {
-          await page.addStyleTag({
-            content: COOKIE_BANNER_CONTAINERS.map(s => `${s} { display: none !important; }`).join('\n')
-          });
-        } catch (styleError) {
-          // Page might have navigated, try to wait and retry
-          if (cookieClicked) {
-            await page.waitForLoadState('domcontentloaded').catch(() => {});
-            await page.waitForTimeout(500);
-            try {
-              await page.addStyleTag({
-                content: COOKIE_BANNER_CONTAINERS.map(s => `${s} { display: none !important; }`).join('\n')
-              });
-            } catch {
-              console.log(`[ElementScreenshot] Could not add style tag after navigation`);
-            }
-          }
-        }
+        await removeCookieBanners(page);
       }
 
       // Wait for target element
@@ -598,6 +1045,10 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       } catch {
         console.log(`[ElementScreenshot] Selector not found: ${options.selector}`);
       }
+
+      // JPEG settings for smaller file sizes
+      const quality = options.quality ?? 80;
+      const type = 'jpeg' as const;
 
       // Find element and take screenshot
       const element = await page.$(options.selector);
@@ -622,6 +1073,8 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
             await page.screenshot({
               path: options.outputPath,
               clip,
+              type,
+              quality,
             });
 
             console.log(`[ElementScreenshot] Captured element with ${padding}px padding: ${options.outputPath}`);
@@ -630,7 +1083,7 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         }
 
         // Fallback: screenshot element directly
-        await element.screenshot({ path: options.outputPath });
+        await element.screenshot({ path: options.outputPath, type, quality });
         console.log(`[ElementScreenshot] Captured element directly: ${options.outputPath}`);
         return { success: true, screenshotPath: options.outputPath };
       }
@@ -639,7 +1092,9 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       console.log(`[ElementScreenshot] Element not found, taking full page screenshot`);
       await page.screenshot({
         path: options.outputPath,
-        fullPage: false // Just viewport, not full page
+        fullPage: false, // Just viewport, not full page
+        type,
+        quality,
       });
       return { success: true, screenshotPath: options.outputPath };
 
