@@ -1133,13 +1133,24 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
 
       // Load page content - prefer pre-fetched HTML from FlareSolverr
       if (options.html) {
-        // Use pre-fetched HTML directly (faster, already rendered by FlareSolverr)
+        // Navigate to URL first to get correct base URL for CSS/resources
+        // Then replace content with pre-fetched HTML
+        try {
+          await page.goto(options.url, {
+            timeout: options.timeout || 30000,
+            waitUntil: 'domcontentloaded'
+          });
+        } catch {
+          // If navigation fails (e.g., timeout), continue with setContent anyway
+        }
+        // Replace with pre-fetched HTML (faster, already rendered by FlareSolverr)
         await page.setContent(options.html, {
           timeout: options.timeout || 30000,
           waitUntil: 'domcontentloaded'
         });
         console.log('[ElementScreenshot] Using pre-fetched HTML');
-        await page.waitForTimeout(1000); // Brief wait for CSS
+        // Wait for resources to load
+        await page.waitForTimeout(2000);
       } else {
         // Navigate to page - use networkidle for SPA sites
         await page.goto(options.url, {
@@ -1170,7 +1181,50 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         }
       }
       if (!selectorFound) {
+        // Diagnostic: try simpler selectors to understand the structure
+        const diagnostics = await page.evaluate((selector) => {
+          const parts = selector.split(' ');
+          const results: Record<string, number> = {};
+
+          // Count each part separately
+          parts.forEach(part => {
+            try {
+              results[part] = document.querySelectorAll(part).length;
+            } catch {
+              results[part] = -1; // Invalid selector
+            }
+          });
+
+          // Also try progressive combinations
+          let combined = '';
+          parts.forEach((part, i) => {
+            combined += (i > 0 ? ' ' : '') + part;
+            try {
+              results[combined] = document.querySelectorAll(combined).length;
+            } catch {
+              results[combined] = -1;
+            }
+          });
+
+          // Check what the first <li> actually is
+          const firstLi = document.querySelector('li');
+          results['first li class'] = firstLi?.className ? 1 : 0;
+          results['first li tag'] = firstLi?.tagName ? 1 : 0;
+
+          // Check product list specifically
+          results['.product-item-container'] = document.querySelectorAll('.product-item-container').length;
+          results['.list-item'] = document.querySelectorAll('.list-item').length;
+          results['.btn-text'] = document.querySelectorAll('.btn-text').length;
+
+          return {
+            counts: results,
+            firstLiClass: firstLi?.className || 'no class',
+            firstLiParent: firstLi?.parentElement?.className || 'no parent',
+          };
+        }, options.selector);
+
         console.log(`[ElementScreenshot] Selector not found after 3 attempts: ${options.selector}`);
+        console.log(`[ElementScreenshot] Diagnostics:`, JSON.stringify(diagnostics));
       }
 
       // JPEG settings for smaller file sizes
