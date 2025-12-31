@@ -10,15 +10,15 @@ export function HealthBadge({ score, size = 'md', showLabel = true }: HealthBadg
   const actualScore = score ?? 0;
 
   const getHealthColor = (s: number) => {
-    if (s >= 80) return 'bg-green-100 text-green-800 border-green-200';
-    if (s >= 50) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    return 'bg-red-100 text-red-800 border-red-200';
+    if (s >= 80) return 'bg-success-100 text-success-700 border-success-200 dark:bg-success-900/50 dark:text-success-300 dark:border-success-800';
+    if (s >= 50) return 'bg-warning-100 text-warning-700 border-warning-200 dark:bg-warning-900/50 dark:text-warning-300 dark:border-warning-800';
+    return 'bg-danger-100 text-danger-700 border-danger-200 dark:bg-danger-900/50 dark:text-danger-300 dark:border-danger-800';
   };
 
   const getHealthLabel = (s: number) => {
-    if (s >= 80) return 'Zdravé';
-    if (s >= 50) return 'Varovanie';
-    return 'Kritické';
+    if (s >= 80) return 'Healthy';
+    if (s >= 50) return 'Warning';
+    return 'Critical';
   };
 
   const sizeClasses = {
@@ -29,7 +29,7 @@ export function HealthBadge({ score, size = 'md', showLabel = true }: HealthBadg
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border font-medium ${getHealthColor(actualScore)} ${sizeClasses[size]}`}
+      className={`inline-flex items-center rounded-full border font-medium transition-colors ${getHealthColor(actualScore)} ${sizeClasses[size]}`}
     >
       <span className="font-bold">{Math.round(actualScore)}</span>
       {showLabel && (

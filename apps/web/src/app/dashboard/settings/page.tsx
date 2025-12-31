@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import api, { NotificationChannel, ChannelType, CreateNotificationChannelDto, SlackChannel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { requestPushPermission, isPushEnabled, getPlayerId, initOneSignal } from '@/lib/onesignal';
+import { Header } from '@/components/layout';
+import { Button, Card, Spinner, Modal, ModalFooter, Input } from '@/components/ui';
 
 const CHANNEL_TYPES: { value: ChannelType; label: string; icon: string; description: string }[] = [
   { value: 'email', label: 'Email', icon: '📧', description: 'Receive alerts via email' },
@@ -115,81 +116,67 @@ export default function SettingsPage() {
   // Show loading while auth is checking
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner size="xl" color="primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold text-primary-600">
-                Sentinel
-              </Link>
-              <span className="ml-4 text-gray-400">/</span>
-              <Link href="/dashboard" className="ml-4 text-gray-500 hover:text-gray-700">
-                Dashboard
-              </Link>
-              <span className="ml-4 text-gray-400">/</span>
-              <span className="ml-4 text-gray-900 font-medium">Settings</span>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <Header />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Navigation Tabs */}
-        <div className="flex space-x-4 mb-8 border-b">
-          <button className="px-4 py-2 border-b-2 border-primary-600 text-primary-600 font-medium">
-            Notification Channels
-          </button>
+        {/* Page title */}
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">Settings</h1>
+          <p className="text-neutral-500 dark:text-neutral-400">Configure your notification preferences</p>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="mb-6 bg-danger-50 border border-danger-200 text-danger-700 px-4 py-3 rounded-lg dark:bg-danger-900/30 dark:border-danger-800 dark:text-danger-300">
             {error}
-            <button onClick={() => setError(null)} className="float-right text-red-500 hover:text-red-700">
+            <button onClick={() => setError(null)} className="float-right text-danger-500 hover:text-danger-700 dark:text-danger-400 dark:hover:text-danger-200">
               &times;
             </button>
           </div>
         )}
 
         {/* Notification Channels Section */}
-        <div className="bg-white rounded-lg shadow border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+        <Card padding="none">
+          <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700 flex justify-between items-center">
             <div>
-              <h2 className="text-lg font-medium text-gray-900">Notification Channels</h2>
-              <p className="text-sm text-gray-500">Configure where you receive alerts</p>
+              <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Notification Channels</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Configure where you receive alerts</p>
             </div>
-            <button
+            <Button
               onClick={() => setShowAddModal(true)}
-              className="bg-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-md text-sm font-medium"
+              size="sm"
+              leftIcon={
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              }
             >
-              + Add Channel
-            </button>
+              Add Channel
+            </Button>
           </div>
 
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div className="p-8 text-center">
+              <Spinner size="lg" color="primary" />
+            </div>
           ) : channels.length === 0 ? (
             <div className="p-8 text-center">
               <div className="text-4xl mb-4">🔔</div>
-              <p className="text-gray-500 mb-4">No notification channels configured</p>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="text-primary-600 hover:text-primary-700 font-medium"
-              >
+              <p className="text-neutral-500 dark:text-neutral-400 mb-4">No notification channels configured</p>
+              <Button variant="ghost" onClick={() => setShowAddModal(true)}>
                 Add your first channel
-              </button>
+              </Button>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200">
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-700">
               {channels.map((channel) => (
                 <li key={channel.id} className="px-6 py-4">
                   <div className="flex items-center justify-between">
@@ -198,8 +185,8 @@ export default function SettingsPage() {
                         {CHANNEL_TYPES.find(t => t.value === channel.type)?.icon || '📢'}
                       </span>
                       <div>
-                        <h3 className="font-medium text-gray-900">{channel.name}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{channel.name}</h3>
+                        <p className="text-sm text-neutral-500 dark:text-neutral-400">
                           {getChannelTypeLabel(channel.type)}
                           {channel.config?.email && ` • ${channel.config.email}`}
                           {channel.config?.channelName && ` • #${channel.config.channelName}`}
@@ -212,17 +199,18 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex items-center space-x-3">
                       {testResult?.id === channel.id && (
-                        <span className={`text-sm ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`text-sm ${testResult.success ? 'text-success-600 dark:text-success-400' : 'text-danger-600 dark:text-danger-400'}`}>
                           {testResult.message}
                         </span>
                       )}
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleTestChannel(channel.id)}
                         disabled={testingId === channel.id}
-                        className="text-gray-500 hover:text-gray-700 text-sm"
                       >
                         {testingId === channel.id ? 'Testing...' : 'Test'}
-                      </button>
+                      </Button>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
@@ -230,23 +218,25 @@ export default function SettingsPage() {
                           onChange={() => handleToggleChannel(channel)}
                           className="sr-only peer"
                         />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                        <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 dark:peer-focus:ring-primary-800 rounded-full peer dark:bg-neutral-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 dark:after:border-neutral-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                       </label>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleDeleteChannel(channel.id)}
-                        className="text-red-500 hover:text-red-700"
+                        className="text-danger-500 hover:text-danger-700 dark:text-danger-400 dark:hover:text-danger-300"
                       >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       </main>
 
       {/* Add Channel Modal */}

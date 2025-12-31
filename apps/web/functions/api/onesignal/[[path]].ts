@@ -3,6 +3,16 @@
 
 interface Env {}
 
+interface EventContext<E = unknown> {
+  request: Request;
+  params: Record<string, string | string[]>;
+  env: E;
+}
+
+type PagesFunction<E = unknown> = (
+  context: EventContext<E>
+) => Response | Promise<Response>;
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, params } = context;
 

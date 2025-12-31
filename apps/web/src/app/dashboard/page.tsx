@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { RuleCard } from '@/components/RuleCard';
 import { HealthBadge } from '@/components/HealthBadge';
 import { useAuth } from '@/contexts/AuthContext';
+import { Header } from '@/components/layout';
+import { Button, Card, Spinner } from '@/components/ui';
 import api, { Rule } from '@/lib/api';
 
 interface HealthSummary {
@@ -144,77 +145,31 @@ export default function DashboardPage() {
     }
   };
 
+  const handleNewRule = () => {
+    alert('Use the Sentinel browser extension to create new rules.\n\n1. Install the extension\n2. Navigate to any webpage\n3. Click the Sentinel icon\n4. Select an element to monitor');
+  };
+
   // Show loading while auth is checking
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner size="xl" color="primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold text-primary-600">
-                Sentinel
-              </Link>
-              <span className="ml-4 text-gray-400">/</span>
-              <span className="ml-4 text-gray-900 font-medium">Dashboard</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => alert('Use the Sentinel browser extension to create new rules.\n\n1. Install the extension\n2. Navigate to any webpage\n3. Click the Sentinel icon\n4. Select an element to monitor')}
-                className="bg-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-md text-sm font-medium"
-              >
-                + New Rule
-              </button>
-              <Link
-                href="/dashboard/settings"
-                className="text-gray-500 hover:text-gray-700"
-                title="Settings"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </Link>
-              <button className="text-gray-500 hover:text-gray-700">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-              </button>
-              {user && (
-                <div className="flex items-center space-x-3 pl-3 border-l border-gray-200">
-                  <span className="text-sm text-gray-600">{user.email}</span>
-                  <button
-                    onClick={logout}
-                    className="text-gray-500 hover:text-gray-700"
-                    title="Logout"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <Header onNewRule={handleNewRule} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error Message */}
         {error && (
-          <div className="mb-6 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg flex items-center justify-between">
+          <div className="mb-6 bg-warning-50 border border-warning-200 text-warning-800 px-4 py-3 rounded-lg flex items-center justify-between dark:bg-warning-900/30 dark:border-warning-800 dark:text-warning-300">
             <span>{error}</span>
             <button
               onClick={loadWorkspaceAndData}
-              className="text-yellow-600 hover:text-yellow-800 font-medium"
+              className="text-warning-600 hover:text-warning-800 font-medium dark:text-warning-400 dark:hover:text-warning-200"
             >
               Retry
             </button>
@@ -225,8 +180,8 @@ export default function DashboardPage() {
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-              <p className="mt-4 text-gray-500">Loading dashboard...</p>
+              <Spinner size="xl" color="primary" />
+              <p className="mt-4 text-neutral-500 dark:text-neutral-400">Loading dashboard...</p>
             </div>
           </div>
         ) : (
@@ -259,38 +214,38 @@ export default function DashboardPage() {
         </div>
 
         {/* Average Health */}
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6 mb-8">
+        <Card className="mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-medium text-gray-900">Overall Health</h2>
-              <p className="text-sm text-gray-500">Average across all rules</p>
+              <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Overall Health</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">Average across all rules</p>
             </div>
             <HealthBadge score={healthSummary.averageScore} size="lg" />
           </div>
-          <div className="mt-4 h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div className="mt-4 h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
                 healthSummary.averageScore >= 80
-                  ? 'bg-green-500'
+                  ? 'bg-success-500'
                   : healthSummary.averageScore >= 50
-                  ? 'bg-yellow-500'
-                  : 'bg-red-500'
+                  ? 'bg-warning-500'
+                  : 'bg-danger-500'
               }`}
               style={{ width: `${healthSummary.averageScore}%` }}
             />
           </div>
-        </div>
+        </Card>
 
         {/* Filter Tabs */}
-        <div className="flex space-x-2 mb-6">
+        <div className="flex flex-wrap gap-2 mb-6">
           {(['all', 'healthy', 'warning', 'critical'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 filter === f
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                  ? 'bg-primary-600 text-white dark:bg-primary-500'
+                  : 'bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700 dark:hover:bg-neutral-700'
               }`}
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -321,18 +276,15 @@ export default function DashboardPage() {
         {filteredRules.length === 0 && (
           <div className="text-center py-12">
             <div className="text-4xl mb-4">📊</div>
-            <p className="text-gray-500 mb-4">
+            <p className="text-neutral-500 dark:text-neutral-400 mb-4">
               {rules.length === 0
                 ? 'No monitoring rules yet. Create your first rule to get started!'
                 : 'No rules match the selected filter'}
             </p>
             {rules.length === 0 && (
-              <button
-                onClick={() => alert('Use the Sentinel browser extension to create new rules.\n\n1. Install the extension\n2. Navigate to any webpage\n3. Click the Sentinel icon\n4. Select an element to monitor')}
-                className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-              >
+              <Button onClick={handleNewRule}>
                 + Create First Rule
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -355,22 +307,22 @@ function SummaryCard({
   color?: 'green' | 'yellow' | 'red';
 }) {
   const colorClasses = {
-    green: 'bg-green-50 border-green-100',
-    yellow: 'bg-yellow-50 border-yellow-100',
-    red: 'bg-red-50 border-red-100',
+    green: 'bg-success-50 border-success-100 dark:bg-success-900/30 dark:border-success-800',
+    yellow: 'bg-warning-50 border-warning-100 dark:bg-warning-900/30 dark:border-warning-800',
+    red: 'bg-danger-50 border-danger-100 dark:bg-danger-900/30 dark:border-danger-800',
   };
 
   return (
     <div
-      className={`rounded-lg shadow border p-4 ${
-        color ? colorClasses[color] : 'bg-white border-gray-200'
+      className={`rounded-lg shadow border p-4 transition-colors ${
+        color ? colorClasses[color] : 'bg-white border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700'
       }`}
     >
       <div className="flex items-center justify-between">
         <span className="text-2xl">{icon}</span>
-        <span className="text-2xl font-bold text-gray-900">{value}</span>
+        <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{value}</span>
       </div>
-      <p className="mt-2 text-sm text-gray-600">{title}</p>
+      <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{title}</p>
     </div>
   );
 }

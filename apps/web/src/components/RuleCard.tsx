@@ -148,24 +148,26 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
 
   return (
     <Link href={`/dashboard/rules/${rule.id}`}>
-      <div className={`relative bg-white rounded-lg shadow border hover:shadow-lg transition-shadow p-4 cursor-pointer ${
-        rule.enabled ? 'border-gray-200' : 'border-gray-300 bg-gray-50'
+      <div className={`relative bg-white dark:bg-neutral-800 rounded-lg shadow border hover:shadow-lg transition-all p-4 cursor-pointer ${
+        rule.enabled
+          ? 'border-neutral-200 dark:border-neutral-700'
+          : 'border-neutral-300 bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-900'
       }`}>
         {/* Delete confirmation overlay */}
         {showDeleteConfirm && (
-          <div className="absolute inset-0 bg-white/95 rounded-lg flex flex-col items-center justify-center z-10 p-4">
-            <p className="text-sm text-gray-700 mb-3 text-center">Naozaj vymazať toto pravidlo?</p>
+          <div className="absolute inset-0 bg-white/95 dark:bg-neutral-800/95 rounded-lg flex flex-col items-center justify-center z-10 p-4">
+            <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-3 text-center">Naozaj vymazať toto pravidlo?</p>
             <div className="flex gap-2">
               <button
                 onClick={handleDeleteConfirm}
                 disabled={isLoading}
-                className="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50"
+                className="px-3 py-1.5 bg-danger-600 text-white text-sm rounded hover:bg-danger-700 disabled:opacity-50"
               >
                 {isLoading ? 'Mažem...' : 'Vymazať'}
               </button>
               <button
                 onClick={handleDeleteCancel}
-                className="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300"
+                className="px-3 py-1.5 bg-neutral-200 text-neutral-700 text-sm rounded hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600"
               >
                 Zrušiť
               </button>
@@ -179,21 +181,21 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
               {/* Status indicator */}
               <span
                 className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  rule.enabled ? 'bg-green-500' : 'bg-gray-400'
+                  rule.enabled ? 'bg-success-500' : 'bg-neutral-400'
                 }`}
                 title={rule.enabled ? 'Aktívne' : 'Pozastavené'}
               />
               <span className="text-xl">{getRuleTypeIcon(rule.ruleType)}</span>
-              <h3 className="text-lg font-medium text-gray-900 truncate">
+              <h3 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 truncate">
                 {rule.name}
               </h3>
               {!rule.enabled && (
-                <span className="px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded-full">
+                <span className="px-2 py-0.5 text-xs bg-neutral-200 text-neutral-600 rounded-full dark:bg-neutral-700 dark:text-neutral-400">
                   Pozastavené
                 </span>
               )}
             </div>
-            <p className="mt-1 text-sm text-gray-500 truncate">
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 truncate">
               {rule.source.domain}
             </p>
           </div>
@@ -202,14 +204,14 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
 
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-gray-500">Current Value:</span>
-            <p className="font-medium text-gray-900 truncate">
+            <span className="text-neutral-500 dark:text-neutral-400">Current Value:</span>
+            <p className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
               {getCurrentValue()}
             </p>
           </div>
           <div>
-            <span className="text-gray-500">Observations:</span>
-            <p className="font-medium text-gray-900">{rule.observationCount}</p>
+            <span className="text-neutral-500 dark:text-neutral-400">Observations:</span>
+            <p className="font-medium text-neutral-900 dark:text-neutral-100">{rule.observationCount}</p>
           </div>
         </div>
 
@@ -217,10 +219,10 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
           const errorInfo = getErrorInfo(rule.lastErrorCode);
           return (
             <div className={`mt-3 p-2 rounded text-sm ${
-              errorInfo?.severity === 'critical' ? 'bg-red-100 text-red-800' :
-              errorInfo?.severity === 'error' ? 'bg-red-50 text-red-700' :
-              errorInfo?.severity === 'warning' ? 'bg-amber-50 text-amber-700' :
-              'bg-blue-50 text-blue-700'
+              errorInfo?.severity === 'critical' ? 'bg-danger-100 text-danger-800 dark:bg-danger-900/50 dark:text-danger-300' :
+              errorInfo?.severity === 'error' ? 'bg-danger-50 text-danger-700 dark:bg-danger-900/30 dark:text-danger-400' :
+              errorInfo?.severity === 'warning' ? 'bg-warning-50 text-warning-700 dark:bg-warning-900/30 dark:text-warning-400' :
+              'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
             }`}>
               <div className="font-medium">{errorInfo?.title || rule.lastErrorCode}</div>
               <div className="text-xs mt-1 opacity-80">{errorInfo?.recommendation}</div>
@@ -230,12 +232,12 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
         })()}
 
         {rule.captchaIntervalEnforced && (
-          <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center gap-2">
+          <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded text-sm text-warning-800 flex items-center gap-2 dark:bg-warning-900/30 dark:border-warning-800 dark:text-warning-300">
             <span>🔒</span>
             <span>
               Interval zmenený na 1 deň (CAPTCHA ochrana)
               {rule.originalSchedule?.intervalSeconds && (
-                <span className="text-amber-600 ml-1">
+                <span className="text-warning-600 dark:text-warning-400 ml-1">
                   (pôvodne {Math.round(rule.originalSchedule.intervalSeconds / 60)} min)
                 </span>
               )}
@@ -244,7 +246,7 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
         )}
 
         <div className="mt-4 flex items-center justify-between">
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-neutral-400 dark:text-neutral-500">
             {rule.enabled ? `Ďalšia kontrola: ${formatTimeUntil(rule.nextRunAt)}` : 'Pozastavené'}
           </span>
           <div className="flex items-center gap-1">
@@ -255,8 +257,8 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
                 disabled={isLoading}
                 className={`p-1.5 rounded transition-colors ${
                   rule.enabled
-                    ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50'
-                    : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                    ? 'text-neutral-400 hover:text-warning-600 hover:bg-warning-50 dark:hover:bg-warning-900/30'
+                    : 'text-neutral-400 hover:text-success-600 hover:bg-success-50 dark:hover:bg-success-900/30'
                 } disabled:opacity-50`}
                 title={rule.enabled ? 'Pozastaviť' : 'Spustiť'}
               >
@@ -277,7 +279,7 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
               <button
                 onClick={handleDeleteClick}
                 disabled={isLoading}
-                className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                className="p-1.5 rounded text-neutral-400 hover:text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-900/30 transition-colors disabled:opacity-50"
                 title="Vymazať"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -285,7 +287,7 @@ export function RuleCard({ rule, onPause, onResume, onDelete }: RuleCardProps) {
                 </svg>
               </button>
             )}
-            <span className="text-xs text-gray-400 hover:text-primary-600 ml-2">Detaily →</span>
+            <span className="text-xs text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 ml-2">Detaily →</span>
           </div>
         </div>
       </div>

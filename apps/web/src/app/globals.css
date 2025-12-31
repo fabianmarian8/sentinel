@@ -2,37 +2,254 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   CSS CUSTOM PROPERTIES - Design Tokens
+   ============================================ */
+
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 249, 250, 251;
-  --background-end-rgb: 255, 255, 255;
+  /* Background colors */
+  --bg-primary: 248 250 252;      /* slate-50 */
+  --bg-secondary: 241 245 249;    /* slate-100 */
+  --bg-tertiary: 226 232 240;     /* slate-200 */
+  --bg-surface: 255 255 255;      /* white */
+  --bg-elevated: 255 255 255;     /* white */
+
+  /* Text colors */
+  --text-primary: 15 23 42;       /* slate-900 */
+  --text-secondary: 71 85 105;    /* slate-600 */
+  --text-tertiary: 148 163 184;   /* slate-400 */
+  --text-inverse: 255 255 255;    /* white */
+
+  /* Border colors */
+  --border-default: 226 232 240;  /* slate-200 */
+  --border-muted: 241 245 249;    /* slate-100 */
+  --border-strong: 203 213 225;   /* slate-300 */
+
+  /* Brand colors */
+  --color-primary: 99 102 241;    /* indigo-500 */
+  --color-primary-hover: 79 70 229; /* indigo-600 */
+  --color-secondary: 6 182 212;   /* cyan-500 */
+
+  /* Semantic colors */
+  --color-success: 16 185 129;    /* emerald-500 */
+  --color-warning: 245 158 11;    /* amber-500 */
+  --color-danger: 244 63 94;      /* rose-500 */
+
+  /* Focus ring */
+  --ring-color: 99 102 241;       /* indigo-500 */
+  --ring-offset: 255 255 255;     /* white */
+
+  /* Scrollbar */
+  --scrollbar-track: 241 245 249;
+  --scrollbar-thumb: 203 213 225;
+  --scrollbar-thumb-hover: 148 163 184;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgb(var(--background-end-rgb))
-  )
-  rgb(var(--background-start-rgb));
+/* Dark mode tokens */
+.dark {
+  --bg-primary: 15 23 42;         /* slate-900 */
+  --bg-secondary: 30 41 59;       /* slate-800 */
+  --bg-tertiary: 51 65 85;        /* slate-700 */
+  --bg-surface: 30 41 59;         /* slate-800 */
+  --bg-elevated: 51 65 85;        /* slate-700 */
+
+  --text-primary: 248 250 252;    /* slate-50 */
+  --text-secondary: 203 213 225;  /* slate-300 */
+  --text-tertiary: 148 163 184;   /* slate-400 */
+  --text-inverse: 15 23 42;       /* slate-900 */
+
+  --border-default: 51 65 85;     /* slate-700 */
+  --border-muted: 30 41 59;       /* slate-800 */
+  --border-strong: 71 85 105;     /* slate-600 */
+
+  --ring-offset: 15 23 42;        /* slate-900 */
+
+  --scrollbar-track: 30 41 59;
+  --scrollbar-thumb: 71 85 105;
+  --scrollbar-thumb-hover: 100 116 139;
 }
 
-/* Custom scrollbar */
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900;
+    @apply dark:bg-neutral-900 dark:text-neutral-50;
+    @apply transition-colors duration-200;
+  }
+
+  /* Typography defaults */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display font-semibold tracking-tight;
+  }
+
+  h1 { @apply text-4xl; }
+  h2 { @apply text-3xl; }
+  h3 { @apply text-2xl; }
+  h4 { @apply text-xl; }
+  h5 { @apply text-lg; }
+  h6 { @apply text-base; }
+
+  /* Focus styles */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+    @apply dark:ring-offset-neutral-900;
+  }
+}
+
+/* ============================================
+   COMPONENT UTILITIES
+   ============================================ */
+
+@layer components {
+  /* Card base */
+  .card {
+    @apply bg-white rounded-lg border border-neutral-200 shadow-sm;
+    @apply dark:bg-neutral-800 dark:border-neutral-700;
+  }
+
+  .card-elevated {
+    @apply bg-white rounded-lg shadow-md;
+    @apply dark:bg-neutral-800;
+  }
+
+  /* Input base */
+  .input-base {
+    @apply w-full px-3 py-2 rounded-md border border-neutral-300;
+    @apply bg-white text-neutral-900 placeholder-neutral-400;
+    @apply focus:border-primary-500 focus:ring-1 focus:ring-primary-500;
+    @apply dark:bg-neutral-800 dark:border-neutral-600 dark:text-neutral-100;
+    @apply dark:placeholder-neutral-500 dark:focus:border-primary-400;
+    @apply transition-colors duration-150;
+  }
+
+  /* Button variants */
+  .btn {
+    @apply inline-flex items-center justify-center font-medium rounded-md;
+    @apply transition-all duration-150 ease-out;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white;
+    @apply hover:bg-primary-700 active:bg-primary-800;
+    @apply focus-visible:ring-primary-500;
+    @apply shadow-sm hover:shadow-md;
+  }
+
+  .btn-secondary {
+    @apply btn bg-neutral-100 text-neutral-700;
+    @apply hover:bg-neutral-200 active:bg-neutral-300;
+    @apply dark:bg-neutral-700 dark:text-neutral-200;
+    @apply dark:hover:bg-neutral-600;
+    @apply focus-visible:ring-neutral-500;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-neutral-600;
+    @apply hover:bg-neutral-100 active:bg-neutral-200;
+    @apply dark:text-neutral-300 dark:hover:bg-neutral-800;
+    @apply focus-visible:ring-neutral-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger-600 text-white;
+    @apply hover:bg-danger-700 active:bg-danger-800;
+    @apply focus-visible:ring-danger-500;
+  }
+
+  .btn-success {
+    @apply btn bg-success-600 text-white;
+    @apply hover:bg-success-700 active:bg-success-800;
+    @apply focus-visible:ring-success-500;
+  }
+
+  /* Size variants */
+  .btn-xs { @apply px-2 py-1 text-xs gap-1; }
+  .btn-sm { @apply px-3 py-1.5 text-sm gap-1.5; }
+  .btn-md { @apply px-4 py-2 text-sm gap-2; }
+  .btn-lg { @apply px-5 py-2.5 text-base gap-2; }
+  .btn-xl { @apply px-6 py-3 text-lg gap-2.5; }
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgb(var(--scrollbar-track));
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: rgb(var(--scrollbar-thumb));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: rgb(var(--scrollbar-thumb-hover));
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--scrollbar-thumb)) rgb(var(--scrollbar-track));
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+@layer utilities {
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary-600 to-secondary-500;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Glass effect */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md;
+    @apply dark:bg-neutral-900/80;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply animate-pulse bg-neutral-200 dark:bg-neutral-700 rounded;
+  }
+}
+
+/* ============================================
+   ANIMATION UTILITIES
+   ============================================ */
+
+/* Prevent flash of unstyled content on theme load */
+.theme-loading * {
+  transition: none !important;
 }
