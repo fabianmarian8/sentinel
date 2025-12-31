@@ -1070,6 +1070,7 @@ export interface ElementScreenshotOptions {
   userAgent?: string;
   cookies?: string;        // Cookie header string from FlareSolverr
   quality?: number;        // JPEG quality 0-100 (default 80)
+  html?: string;           // Pre-fetched HTML to use instead of navigating (from FlareSolverr)
 }
 
 /**
@@ -1130,14 +1131,24 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         }
       }
 
-      // Navigate to page - use networkidle for SPA sites
-      await page.goto(options.url, {
-        timeout: options.timeout || 30000,
-        waitUntil: 'networkidle'
-      });
-
-      // Wait for JS to render content
-      await page.waitForTimeout(3000);
+      // Load page content - prefer pre-fetched HTML from FlareSolverr
+      if (options.html) {
+        // Use pre-fetched HTML directly (faster, already rendered by FlareSolverr)
+        await page.setContent(options.html, {
+          timeout: options.timeout || 30000,
+          waitUntil: 'domcontentloaded'
+        });
+        console.log('[ElementScreenshot] Using pre-fetched HTML');
+        await page.waitForTimeout(1000); // Brief wait for CSS
+      } else {
+        // Navigate to page - use networkidle for SPA sites
+        await page.goto(options.url, {
+          timeout: options.timeout || 30000,
+          waitUntil: 'networkidle'
+        });
+        // Wait for JS to render content
+        await page.waitForTimeout(3000);
+      }
 
       // Use comprehensive cookie banner removal
       if (dismissCookies) {

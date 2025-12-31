@@ -162,6 +162,8 @@ export async function smartFetch(
             userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
             // Pass cf_clearance and other cookies from FlareSolverr
             cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
+            // Use pre-fetched HTML from FlareSolverr (already rendered, faster)
+            html: flareSolverrResult.html || undefined,
           });
 
           if (screenshotResult.success) {
