@@ -581,6 +581,37 @@ const COOKIE_BANNER_SELECTORS = [
   // eBay
   '#gdpr-banner-accept',
 
+  // === Google Funding Choices / TCF consent ===
+  '.fc-cta-consent', // Funding Choices accept button
+  '.fc-button.fc-cta-consent',
+  '[data-fc-action="consent"]',
+  'button.fc-primary-button',
+  '.fc-consent-root button.fc-button',
+  // SourcePoint
+  'button.sp_choice_type_11', // Accept all
+  'button.sp_choice_type_ACCEPT_ALL',
+  '.message-component[title="Accept"]',
+  '[title="SÚHLASÍM"]', // Slovak SourcePoint
+  '[title="Súhlasím"]',
+  '[title="ACCEPT ALL"]',
+  // Didomi
+  '#didomi-notice-agree-button',
+  '.didomi-popup-container .didomi-button.didomi-button-highlight',
+  // Quantcast
+  '.qc-cmp2-summary-buttons button[mode="primary"]',
+  '#qc-cmp2-ui button.css-47sehv', // Quantcast accept
+  // TrustArc
+  '.truste_popframe .call',
+  '#truste-consent-button',
+  // Consent Manager
+  '.cmpboxbtn.cmpboxbtnyes',
+  '#cmpwelcomebtnyes',
+  // Slovak news sites specific
+  '.consent-popup__accept',
+  '.cmp-intro__btn--accept',
+  '[data-action="consent-agree"]',
+  '.privacy-message__accept',
+
   // === Fallback broad patterns ===
   'button[id*="accept"]',
   'button[id*="cookie"]',
@@ -653,6 +684,28 @@ const COOKIE_BANNER_CONTAINERS = [
   '.gdpr-overlay',
   '[class*="cookie"][class*="overlay"]',
   '[class*="consent"][class*="overlay"]',
+
+  // === TCF / Google Funding Choices ===
+  '.fc-consent-root',
+  '.fc-dialog-container',
+  '.fc-dialog-overlay',
+  '[class*="fc-consent"]',
+  '#sp_message_container_XXXXX', // SourcePoint dynamic ID
+  '[id^="sp_message_container"]',
+  '.sp-message-open',
+  '.message-overlay',
+  // Didomi
+  '#didomi-host',
+  '#didomi-popup',
+  '.didomi-popup-container',
+  // Quantcast
+  '#qc-cmp2-container',
+  '.qc-cmp2-container',
+  // Google CMP iframe
+  'iframe[src*="consent"]',
+  'iframe[src*="gdpr"]',
+  'iframe[title*="consent"]',
+  'iframe[title*="cookie"]',
 ];
 
 /**
@@ -714,6 +767,58 @@ async function removeCookieBanners(page: Page): Promise<{ clicked: boolean; remo
   let removed = 0;
 
   try {
+    // Layer 0: Try TCF API consent (most reliable for TCF-compliant sites)
+    try {
+      const tcfResult = await page.evaluate(() => {
+        return new Promise<boolean>((resolve) => {
+          // Check if TCF API exists
+          if (typeof (window as any).__tcfapi === 'function') {
+            // Try to accept all via TCF
+            (window as any).__tcfapi('ping', 2, (pingResult: any) => {
+              if (pingResult && pingResult.cmpLoaded) {
+                // CMP is loaded, try to trigger consent
+                // Different CMPs handle this differently
+
+                // Method 1: Google Funding Choices
+                if (typeof (window as any).googlefc?.callbackQueue?.push === 'function') {
+                  (window as any).googlefc.callbackQueue.push({
+                    CONSENT_DATA_READY: () => {
+                      resolve(true);
+                    }
+                  });
+                  return;
+                }
+
+                // Method 2: Set all purposes via __tcfapi (if supported)
+                (window as any).__tcfapi('addEventListener', 2, (tcData: any, success: boolean) => {
+                  if (success && tcData.eventStatus === 'useractioncomplete') {
+                    resolve(true);
+                  }
+                });
+
+                resolve(false);
+              } else {
+                resolve(false);
+              }
+            });
+          } else {
+            resolve(false);
+          }
+
+          // Timeout fallback
+          setTimeout(() => resolve(false), 1000);
+        });
+      });
+
+      if (tcfResult) {
+        console.log('[CookieBanner] TCF API consent triggered');
+        clicked = true;
+        await page.waitForTimeout(500);
+      }
+    } catch {
+      // TCF API not available or failed
+    }
+
     // Layer 1: Try clicking accept buttons (most reliable)
     for (const selector of COOKIE_BANNER_SELECTORS) {
       try {
