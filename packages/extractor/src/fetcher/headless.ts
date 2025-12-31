@@ -1130,25 +1130,36 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         }
       }
 
-      // Navigate to page
+      // Navigate to page - use networkidle for SPA sites
       await page.goto(options.url, {
         timeout: options.timeout || 30000,
-        waitUntil: 'domcontentloaded'
+        waitUntil: 'networkidle'
       });
 
-      // Wait a bit for page to render
-      await page.waitForTimeout(2000);
+      // Wait for JS to render content
+      await page.waitForTimeout(3000);
 
       // Use comprehensive cookie banner removal
       if (dismissCookies) {
         await removeCookieBanners(page);
       }
 
-      // Wait for target element
-      try {
-        await page.waitForSelector(options.selector, { timeout: 10000 });
-      } catch {
-        console.log(`[ElementScreenshot] Selector not found: ${options.selector}`);
+      // Wait for target element with retry for SPA content
+      let selectorFound = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await page.waitForSelector(options.selector, { timeout: 5000 });
+          selectorFound = true;
+          break;
+        } catch {
+          if (attempt < 2) {
+            console.log(`[ElementScreenshot] Selector not found, retry ${attempt + 1}/3: ${options.selector}`);
+            await page.waitForTimeout(2000);
+          }
+        }
+      }
+      if (!selectorFound) {
+        console.log(`[ElementScreenshot] Selector not found after 3 attempts: ${options.selector}`);
       }
 
       // JPEG settings for smaller file sizes
