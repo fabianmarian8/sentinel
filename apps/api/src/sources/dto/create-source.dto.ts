@@ -1,4 +1,4 @@
-import { IsUrl, IsOptional, IsArray, IsString } from 'class-validator';
+import { IsUrl, IsOptional, IsArray, IsString, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateSourceDto {
@@ -6,7 +6,7 @@ export class CreateSourceDto {
     description: 'ID of the workspace this source belongs to',
     example: 'clh1234567890abcdefg',
   })
-  @IsString()
+  @IsUUID()
   workspaceId!: string;
 
   @ApiProperty({
@@ -20,8 +20,8 @@ export class CreateSourceDto {
     description: 'ID of the fetch profile to use for this source',
     example: 'clh9876543210zyxwvut',
   })
-  @IsString()
   @IsOptional()
+  @IsUUID()
   fetchProfileId?: string;
 
   @ApiPropertyOptional({

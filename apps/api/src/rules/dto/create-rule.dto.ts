@@ -6,6 +6,7 @@ import {
   ValidateNested,
   IsBoolean,
   IsOptional,
+  IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -27,7 +28,7 @@ export class CreateRuleDto {
     description: 'ID of the source to monitor',
     example: 'clh1234567890abcdefg',
   })
-  @IsString()
+  @IsUUID()
   sourceId!: string;
 
   @ApiProperty({

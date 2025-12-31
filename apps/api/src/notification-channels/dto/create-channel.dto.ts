@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, ValidateNested, IsEmail, IsUrl } from 'class-validator';
+import { IsString, IsEnum, IsOptional, ValidateNested, IsEmail, IsUrl, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -98,7 +98,7 @@ export class CreateChannelDto {
   type!: ChannelType;
 
   @ApiProperty({ example: 'workspace-id' })
-  @IsString()
+  @IsUUID()
   workspaceId!: string;
 
   // New channel configs

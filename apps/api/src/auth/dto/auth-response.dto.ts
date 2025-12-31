@@ -1,10 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { IsUUID } from 'class-validator';
 
 export class UserDto {
   @ApiProperty({
     example: 'clxxxx1234567890',
     description: 'User ID',
   })
+  @IsUUID()
   id!: string;
 
   @ApiProperty({
