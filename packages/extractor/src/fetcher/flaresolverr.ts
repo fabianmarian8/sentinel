@@ -214,7 +214,7 @@ export async function fetchFlareSolverr(
       `[FlareSolverr] Success for ${options.url} (${data.solution.response.length} bytes, ${totalTime}ms)`
     );
 
-    // Handle screenshot if present
+    // Handle screenshot if present - inject CSS to hide cookie banners
     let screenshotPath: string | undefined;
     if (data.solution.screenshot && options.screenshotPath) {
       try {
@@ -232,6 +232,10 @@ export async function fetchFlareSolverr(
       }
     }
 
+    // Clean HTML from cookie banner elements for better content analysis
+    let cleanHtml = data.solution.response;
+    cleanHtml = removeCookieBannerFromHtml(cleanHtml);
+
     // Convert cookies to header format for potential reuse
     const cookieHeader = data.solution.cookies
       .map((c) => `${c.name}=${c.value}`)
@@ -243,7 +247,7 @@ export async function fetchFlareSolverr(
       finalUrl: data.solution.url,
       httpStatus: data.solution.status,
       contentType: data.solution.headers['content-type'] || null,
-      html: data.solution.response,
+      html: cleanHtml, // Use cleaned HTML without cookie banners
       errorCode: null,
       errorDetail: null,
       timings: {
@@ -375,6 +379,82 @@ function parseCookieString(
       value: value.trim(),
     };
   });
+}
+
+/**
+ * Remove cookie banner elements from HTML string
+ * Injects CSS to hide cookie banners and removes common cookie consent elements
+ */
+function removeCookieBannerFromHtml(html: string): string {
+  // CSS selectors for cookie banners to hide
+  const hideSelectors = [
+    '#onetrust-consent-sdk',
+    '#onetrust-banner-sdk',
+    '[id*="CybotCookiebot"]',
+    '#cookieyes-container',
+    '.cc-window',
+    '#cookie-law-info-bar',
+    '#gdpr-cookie-message',
+    '#cookie-consent',
+    '#cookie-banner',
+    '#cookie-popup',
+    '#cookie-modal',
+    '.cookie-consent',
+    '.cookie-banner',
+    '.cookie-popup',
+    '.gdpr-consent',
+    '.consent-banner',
+    '.consent-modal',
+    '.fc-consent-root',
+    '.fc-dialog-container',
+    '#sp_message_container',
+    '[id^="sp_message_container"]',
+    '#didomi-host',
+    '#didomi-popup',
+    '#qc-cmp2-container',
+    '[class*="ochrana"]',
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '.modal-backdrop',
+    '[class*="cookie-overlay"]',
+    '[class*="consent-overlay"]',
+  ].join(',\n');
+
+  // CSS to inject at the start of <head>
+  const cssToInject = `
+<style id="sentinel-cookie-hide">
+${hideSelectors} {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+body {
+  overflow: auto !important;
+}
+</style>
+`;
+
+  // Inject CSS into <head>
+  if (html.includes('<head>')) {
+    html = html.replace('<head>', '<head>' + cssToInject);
+  } else if (html.includes('<head ')) {
+    html = html.replace(/<head\s[^>]*>/, '$&' + cssToInject);
+  }
+
+  // Also remove common cookie banner elements from DOM (regex-based removal)
+  // Remove inline scripts that create cookie banners
+  const scriptPatterns = [
+    /<script[^>]*(?:onetrust|cookiebot|gdpr|consent)[^>]*>[\s\S]*?<\/script>/gi,
+  ];
+
+  for (const pattern of scriptPatterns) {
+    html = html.replace(pattern, '');
+  }
+
+  return html;
 }
 
 /**

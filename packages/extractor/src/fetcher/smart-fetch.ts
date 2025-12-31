@@ -1,6 +1,6 @@
 // Smart fetcher with HTTP-first, FlareSolverr, and headless fallback
 import { fetchHttp } from './http';
-import { fetchHeadless, takeElementScreenshot, type HeadlessFetchOptions } from './headless';
+import { fetchHeadless, takeElementScreenshot, takeFullPageScreenshot, type HeadlessFetchOptions } from './headless';
 import { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 import { detectBlock } from './block-detection';
 import { isJavaScriptRequired } from './spa-detection';
@@ -170,9 +170,19 @@ export async function smartFetch(
             finalScreenshotPath = screenshotResult.screenshotPath || null;
             logger.debug(`Element screenshot captured: ${finalScreenshotPath}`);
           } else {
-            logger.warn(`Element screenshot failed: ${screenshotResult.error}, using FlareSolverr full-page`);
-            // Fallback: request full-page screenshot from FlareSolverr
-            if (!finalScreenshotPath) {
+            logger.warn(`Element screenshot failed: ${screenshotResult.error}, trying setContent screenshot`);
+            // Fallback 1: Try Playwright with setContent (HTML already has cookie-hiding CSS)
+            const setContentScreenshot = await takeFullPageScreenshot({
+              html: flareSolverrResult.html || '',
+              outputPath: options.screenshotPath,
+            });
+
+            if (setContentScreenshot.success) {
+              finalScreenshotPath = setContentScreenshot.screenshotPath || null;
+              logger.debug(`setContent screenshot captured: ${finalScreenshotPath}`);
+            } else {
+              // Fallback 2: request full-page screenshot from FlareSolverr (has cookie banner but works)
+              logger.warn(`setContent failed, using FlareSolverr full-page`);
               const retryResult = await fetchFlareSolverr({
                 ...options,
                 flareSolverrUrl,

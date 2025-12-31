@@ -1060,6 +1060,72 @@ async function validateScreenshot(page: Page, targetSelector?: string): Promise<
   return result;
 }
 
+export interface FullPageScreenshotOptions {
+  html: string;           // HTML content to render
+  outputPath: string;     // Where to save screenshot
+  quality?: number;       // JPEG quality 0-100 (default 80)
+}
+
+/**
+ * Take a full-page screenshot from HTML content using setContent
+ * Used when element screenshot fails but we have valid HTML from FlareSolverr
+ */
+export async function takeFullPageScreenshot(options: FullPageScreenshotOptions): Promise<{
+  success: boolean;
+  screenshotPath?: string;
+  error?: string;
+}> {
+  const browser = await getBrowser();
+  let context: BrowserContext | null = null;
+
+  try {
+    context = await browser.newContext({
+      userAgent: getRandomUserAgent(),
+      viewport: { width: 1920, height: 1080 },
+      locale: 'sk-SK'
+    });
+
+    const page = await context.newPage();
+
+    try {
+      // Load HTML with setContent (CSS for hiding cookie banners already injected)
+      await page.setContent(options.html, {
+        timeout: 30000,
+        waitUntil: 'domcontentloaded'
+      });
+
+      // Wait for styles to apply
+      await page.waitForTimeout(1000);
+
+      // Take screenshot
+      const quality = options.quality ?? 80;
+      await page.screenshot({
+        path: options.outputPath,
+        fullPage: false, // Just viewport
+        type: 'jpeg',
+        quality,
+      });
+
+      console.log(`[FullPageScreenshot] Captured: ${options.outputPath}`);
+      return { success: true, screenshotPath: options.outputPath };
+
+    } catch (error) {
+      const err = error as Error;
+      console.error(`[FullPageScreenshot] Error: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  } finally {
+    if (context) {
+      try {
+        await context.close();
+      } catch (err) {
+        console.error('[takeFullPageScreenshot] Error closing context:', err);
+      }
+    }
+    browserPool.releaseContext(browser);
+  }
+}
+
 export interface ElementScreenshotOptions {
   url: string;
   selector: string;
