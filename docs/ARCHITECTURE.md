@@ -127,9 +127,9 @@ sentinel/
 
 | Parameter | Hodnota |
 |-----------|---------|
-| IP | `135.181.99.192` |
+| IP | `<SERVER_IP>` |
 | OS | Ubuntu 22.04 |
-| SSH | `ssh root@135.181.99.192` |
+| SSH | `ssh root@<SERVER_IP>` |
 
 ### Systemd služby
 
@@ -195,7 +195,7 @@ Súbor: `/root/sentinel/apps/worker/.env`
 
 ```bash
 NODE_ENV=production
-DATABASE_URL=postgresql://n8n:n8n_password_2024@localhost:5432/sentinel?schema=public
+DATABASE_URL=postgresql://n8n:<DB_PASSWORD>@localhost:5432/sentinel?schema=public
 REDIS_HOST=localhost
 REDIS_PORT=6379
 WORKER_CONCURRENCY_RULES=5
@@ -205,8 +205,8 @@ WORKER_CONCURRENCY_ALERTS=10
 S3_ENDPOINT=https://storage.taxinearme.sk
 S3_REGION=us-east-1
 S3_BUCKET=sentinel-storage
-S3_ACCESS_KEY_ID=sentinel_admin
-S3_SECRET_ACCESS_KEY=sentinel_minio_2024_secure
+S3_ACCESS_KEY_ID=<MINIO_USER>
+S3_SECRET_ACCESS_KEY=<MINIO_SECRET_KEY>
 S3_FORCE_PATH_STYLE=true
 
 # FlareSolverr
@@ -450,7 +450,7 @@ npx wrangler pages deploy .vercel/output/static
 ### Worker (Server)
 
 ```bash
-ssh root@135.181.99.192
+ssh root@<SERVER_IP>
 cd /root/sentinel
 git pull
 pnpm install
@@ -478,7 +478,7 @@ systemctl restart sentinel-api sentinel-worker sentinel-web
 cd /root/n8n && docker compose logs -f
 
 # MinIO console
-# https://minio.taxinearme.sk (sentinel_admin / sentinel_minio_2024_secure)
+# https://minio.taxinearme.sk (<MINIO_USER> / <MINIO_SECRET_KEY>)
 ```
 
 ---
