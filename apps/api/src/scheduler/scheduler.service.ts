@@ -120,6 +120,34 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.debug(`Processing ${dueRules.length} due rules`);
 
+    // Atomically claim these rules by setting nextRunAt to far future
+    // This prevents other ticks from claiming the same rules
+    const claimTime = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year in future
+    const ruleIds = dueRules.map((r) => r.id);
+
+    const claimResult = await this.prisma.rule.updateMany({
+      where: {
+        id: { in: ruleIds },
+        nextRunAt: { lte: now }, // Verify still due (atomic check)
+      },
+      data: {
+        nextRunAt: claimTime,
+      },
+    });
+
+    // If some rules were already claimed by another tick, filter them out
+    const actuallyClaimedCount = claimResult.count;
+    if (actuallyClaimedCount === 0) {
+      this.logger.debug('All rules were already claimed by another tick');
+      return;
+    }
+
+    if (actuallyClaimedCount < dueRules.length) {
+      this.logger.debug(
+        `Claimed ${actuallyClaimedCount}/${dueRules.length} rules (some already claimed)`,
+      );
+    }
+
     // Group rules by domain for rate limiting
     const rulesByDomain = this.groupByDomain(dueRules);
 
@@ -165,6 +193,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       if (!rule) continue;
 
       try {
+        // Calculate next run time BEFORE enqueue (since we already claimed it)
+        const nextRunAt = this.calculateNextRunTime(rule.schedule);
+
         // Enqueue job
         await this.rulesQueue.add(
           'run',
@@ -185,27 +216,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           },
         );
 
-        // Fetch fresh rule state in case worker modified it (e.g., CAPTCHA detection)
-        const freshRule = await this.prisma.rule.findUnique({
+        // After successful enqueue, update nextRunAt to the correct value
+        // Note: Worker may update this again if CAPTCHA is detected
+        await this.prisma.rule.update({
           where: { id: rule.id },
-          select: { schedule: true, captchaIntervalEnforced: true, nextRunAt: true },
+          data: { nextRunAt },
         });
 
-        // If captchaIntervalEnforced was just set, worker already updated nextRunAt - don't overwrite
-        if (freshRule?.captchaIntervalEnforced && freshRule.nextRunAt && freshRule.nextRunAt > new Date()) {
-          this.logger.debug(
-            `Rule ${rule.id}: CAPTCHA enforced, keeping worker's nextRunAt: ${freshRule.nextRunAt.toISOString()}`,
-          );
-        } else {
-          // Calculate next run time using fresh schedule
-          const nextRunAt = this.calculateNextRunTime(freshRule?.schedule ?? rule.schedule);
-
-          // Update rule
-          await this.prisma.rule.update({
-            where: { id: rule.id },
-            data: { nextRunAt },
-          });
-        }
+        this.logger.debug(
+          `Enqueued rule ${rule.id}, next run: ${nextRunAt.toISOString()}`,
+        );
 
         // Add delay for domain rate limiting
         if (i < rules.length - 1) {
@@ -216,6 +236,20 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           `Failed to enqueue rule ${rule.id} for domain ${domain}`,
           error,
         );
+
+        // If enqueue failed, reset nextRunAt so rule can be retried
+        try {
+          const retryAt = new Date(Date.now() + 60 * 1000); // Retry in 1 minute
+          await this.prisma.rule.update({
+            where: { id: rule.id },
+            data: { nextRunAt: retryAt },
+          });
+        } catch (resetError) {
+          this.logger.error(
+            `Failed to reset nextRunAt for failed rule ${rule.id}`,
+            resetError,
+          );
+        }
       }
     }
   }
