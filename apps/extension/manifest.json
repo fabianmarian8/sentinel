@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Sentinel - Change Monitor",
   "description": "Monitor website changes - track prices, availability, and content",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "permissions": [
     "storage",
     "activeTab",
