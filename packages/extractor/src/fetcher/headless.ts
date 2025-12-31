@@ -1198,25 +1198,24 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       }
 
       // Load page content
-      // If we have cookies from FlareSolverr, navigate with cookies (most reliable)
-      // setContent doesn't work well because it lacks base URL and JS execution
-      if (options.cookies) {
+      // Prefer setContent with HTML (has cookie-hiding CSS injected) over navigation
+      // Navigation with cookies often fails due to Cloudflare blocking headless browsers
+      if (options.html) {
+        // Use setContent - HTML already has cookie-hiding CSS injected by FlareSolverr
+        await page.setContent(options.html, {
+          timeout: options.timeout || 30000,
+          waitUntil: 'domcontentloaded'
+        });
+        console.log('[ElementScreenshot] Using pre-fetched HTML with cookie-hiding CSS');
+        await page.waitForTimeout(1000);
+      } else if (options.cookies) {
+        // Fallback: try navigation with cookies (may fail on Cloudflare sites)
         console.log('[ElementScreenshot] Navigating with FlareSolverr cookies');
         await page.goto(options.url, {
           timeout: options.timeout || 30000,
           waitUntil: 'networkidle'
         });
-        // Wait for dynamic content to render
         await page.waitForTimeout(3000);
-      } else if (options.html) {
-        // Fallback: Use setContent if we have HTML but no cookies
-        // This is less reliable but better than nothing
-        await page.setContent(options.html, {
-          timeout: options.timeout || 30000,
-          waitUntil: 'domcontentloaded'
-        });
-        console.log('[ElementScreenshot] Using pre-fetched HTML (no cookies)');
-        await page.waitForTimeout(2000);
       } else {
         // Navigate to page - use networkidle for SPA sites
         await page.goto(options.url, {
