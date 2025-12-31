@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { createDecipheriv } from 'crypto';
+import { createDecipheriv, scryptSync } from 'crypto';
 import { AlertDispatchPayload, QUEUE_NAMES } from '../types/jobs';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkerConfigService } from '../config/config.service';
@@ -42,26 +42,52 @@ export class AlertProcessor extends WorkerHost {
   }
 
   /**
-   * Decrypt channel configuration
+   * Derive a cryptographically strong encryption key using scrypt
+   */
+  private deriveKey(password: string, salt: Buffer): Buffer {
+    return scryptSync(password, salt, 32, { N: 16384, r: 8, p: 1 });
+  }
+
+  /**
+   * Decrypt channel configuration with backward compatibility
+   * Legacy format: iv:authTag:ciphertext (3 parts)
+   * New format: salt:iv:authTag:ciphertext (4 parts)
    */
   private decrypt(encryptedText: string): string {
     const encryptionKey = this.config.encryptionKey;
-    const key = Buffer.from(encryptionKey.slice(0, 32));
     const parts = encryptedText.split(':');
-    if (parts.length !== 3) {
+
+    // Detect format based on number of parts
+    if (parts.length === 3) {
+      // Legacy format without salt - use old key derivation
+      const [ivHex, authTagHex, encrypted] = parts as [string, string, string];
+      const key = Buffer.from(encryptionKey.slice(0, 32));
+      const iv = Buffer.from(ivHex, 'hex');
+      const authTag = Buffer.from(authTagHex, 'hex');
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      return decrypted;
+    } else if (parts.length === 4) {
+      // New format with salt - use scrypt key derivation
+      const [saltHex, ivHex, authTagHex, encrypted] = parts as [string, string, string, string];
+      const salt = Buffer.from(saltHex, 'hex');
+      const key = this.deriveKey(encryptionKey, salt);
+      const iv = Buffer.from(ivHex, 'hex');
+      const authTag = Buffer.from(authTagHex, 'hex');
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      return decrypted;
+    } else {
       throw new Error('Invalid encrypted data format');
     }
-    const [ivHex, authTagHex, encrypted] = parts as [string, string, string];
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-
-    let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
   }
 
   async process(job: Job<AlertDispatchPayload>): Promise<void> {

@@ -5,7 +5,6 @@ import {
   IsNumber,
   IsOptional,
   ValidateNested,
-  IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -83,12 +82,12 @@ export class AlertPolicyDto {
   conditions!: AlertConditionDto[];
 
   @ApiPropertyOptional({
-    description: 'IDs of notification channels to use for alerts',
+    description: 'IDs of notification channels to use for alerts (CUID format)',
     type: [String],
     example: ['clh1234567890abcdefg'],
   })
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsString({ each: true })
   @IsOptional()
   channels?: string[];
 

@@ -152,14 +152,14 @@ redis-cli del "bull:rules:run:waiting"
 | S3 API | https://storage.taxinearme.sk |
 
 **Credentials:**
-- User: `sentinel_admin`
-- Password: `sentinel_minio_2024_secure`
+- User: `<pozri .env na serveri>`
+- Password: `<pozri .env na serveri>`
 
 ### CLI (mc)
 
 ```bash
-# Konfigurácia
-mc alias set local http://localhost:9000 sentinel_admin sentinel_minio_2024_secure
+# Konfigurácia (credentials z .env)
+mc alias set local http://localhost:9000 <ACCESS_KEY> <SECRET_KEY>
 
 # List buckets
 mc ls local/
@@ -208,17 +208,19 @@ npx prisma migrate deploy
 
 ```bash
 # /root/sentinel/apps/worker/.env
+# POZOR: Skutočné hodnoty sú len na serveri!
+# Nikdy necommituj reálne credentials do repo!
 NODE_ENV=production
-DATABASE_URL=postgresql://n8n:n8n_password_2024@localhost:5432/sentinel?schema=public
+DATABASE_URL=<connection string z Supabase/PostgreSQL>
 REDIS_URL=redis://localhost:6379
 PUPPETEER_HEADLESS=true
 PUPPETEER_TIMEOUT=30000
 PROXY_URL=
-ENCRYPTION_KEY=sentinel-super-secret-encryption-key-32-chars-min
+ENCRYPTION_KEY=<32+ znakov, vygeneruj: openssl rand -hex 32>
 S3_BUCKET=sentinel-storage
 S3_ENDPOINT=https://storage.taxinearme.sk
-S3_ACCESS_KEY_ID=sentinel_admin
-S3_SECRET_ACCESS_KEY=sentinel_minio_2024_secure
+S3_ACCESS_KEY_ID=<MinIO access key>
+S3_SECRET_ACCESS_KEY=<MinIO secret key>
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
 ```
@@ -227,11 +229,13 @@ S3_FORCE_PATH_STYLE=true
 
 ```bash
 # /root/sentinel/apps/api/.env
+# POZOR: Skutočné hodnoty sú len na serveri!
+# Nikdy necommituj reálne credentials do repo!
 NODE_ENV=production
-DATABASE_URL=postgresql://n8n:n8n_password_2024@localhost:5432/sentinel?schema=public
+DATABASE_URL=<connection string z Supabase/PostgreSQL>
 REDIS_URL=redis://localhost:6379
-JWT_SECRET=<NIKDY NEMENIŤ!>
-ENCRYPTION_KEY=sentinel-super-secret-encryption-key-32-chars-min
+JWT_SECRET=<vygeneruj: openssl rand -hex 64>
+ENCRYPTION_KEY=<32+ znakov, vygeneruj: openssl rand -hex 32>
 PORT=3000
 ```
 

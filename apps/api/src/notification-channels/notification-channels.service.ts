@@ -7,6 +7,76 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypt
 
 const ALGORITHM = 'aes-256-gcm';
 
+// Allowed webhook domains (prevent SSRF)
+const ALLOWED_WEBHOOK_PATTERNS = [
+  /^https:\/\/discord\.com\/api\/webhooks\//,    // Discord webhooks
+  /^https:\/\/hooks\.slack\.com\/services\//,     // Slack webhooks
+  /^https:\/\/.*\.webhook\.office\.com\//,        // Microsoft Teams
+  /^https:\/\/api\.telegram\.org\/bot/,           // Telegram
+];
+
+// Block private/internal IPs
+const BLOCKED_IP_PATTERNS = [
+  /^127\./,                              // localhost
+  /^10\./,                               // private class A
+  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,     // private class B
+  /^192\.168\./,                         // private class C
+  /^169\.254\./,                         // link-local
+  /^0\./,                                // current network
+  /^::1$/,                               // IPv6 localhost
+  /^fe80:/i,                             // IPv6 link-local
+  /^fc00:/i,                             // IPv6 private
+  /^fd00:/i,                             // IPv6 private
+];
+
+/**
+ * Validate URL to prevent SSRF attacks
+ * @param url - URL to validate
+ * @param allowCustom - If true, allow any HTTPS URL not on private IPs
+ * @returns true if URL is safe to fetch
+ */
+function isUrlSafeForFetch(url: string, allowCustom = false): boolean {
+  try {
+    const parsed = new URL(url);
+
+    // Must be HTTPS
+    if (parsed.protocol !== 'https:') {
+      return false;
+    }
+
+    // Block private/internal IPs
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost variants
+    if (hostname === 'localhost' || hostname === 'host.docker.internal') {
+      return false;
+    }
+
+    // Check if hostname looks like an IP address
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const ipStr = hostname;
+      if (BLOCKED_IP_PATTERNS.some(pattern => pattern.test(ipStr))) {
+        return false;
+      }
+    }
+
+    // Allow known webhook domains
+    if (ALLOWED_WEBHOOK_PATTERNS.some(pattern => pattern.test(url))) {
+      return true;
+    }
+
+    // For custom webhooks, allow any HTTPS URL not on blocked IPs
+    if (allowCustom) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class NotificationChannelsService {
   constructor(
@@ -373,6 +443,11 @@ export class NotificationChannelsService {
         }
 
         case 'discord': {
+          // SSRF protection: validate Discord webhook URL
+          if (!isUrlSafeForFetch(config.webhookUrl)) {
+            throw new BadRequestException('Invalid Discord webhook URL - must be https://discord.com/api/webhooks/...');
+          }
+
           const response = await fetch(config.webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -390,6 +465,11 @@ export class NotificationChannelsService {
         }
 
         case 'webhook': {
+          // SSRF protection: validate webhook URL (allow custom HTTPS URLs)
+          if (!isUrlSafeForFetch(config.url, true)) {
+            throw new BadRequestException('Invalid webhook URL - must be HTTPS and not point to internal/private networks');
+          }
+
           const response = await fetch(config.url, {
             method: 'POST',
             headers: {

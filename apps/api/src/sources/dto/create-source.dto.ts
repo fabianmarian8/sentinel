@@ -1,12 +1,13 @@
-import { IsUrl, IsOptional, IsArray, IsString, IsUUID } from 'class-validator';
+import { IsUrl, IsOptional, IsArray, IsString, IsNotEmpty } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateSourceDto {
   @ApiProperty({
-    description: 'ID of the workspace this source belongs to',
+    description: 'ID of the workspace this source belongs to (CUID format)',
     example: 'clh1234567890abcdefg',
   })
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   workspaceId!: string;
 
   @ApiProperty({
@@ -17,11 +18,11 @@ export class CreateSourceDto {
   url!: string;
 
   @ApiPropertyOptional({
-    description: 'ID of the fetch profile to use for this source',
+    description: 'ID of the fetch profile to use for this source (CUID format)',
     example: 'clh9876543210zyxwvut',
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   fetchProfileId?: string;
 
   @ApiPropertyOptional({
