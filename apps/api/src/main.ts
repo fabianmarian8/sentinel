@@ -18,6 +18,8 @@ async function bootstrap() {
     credentials: true,
   });
 
+  const nodeEnv = configService.nodeEnv;
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
@@ -30,47 +32,54 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger documentation (enabled in all environments)
-  const config = new DocumentBuilder()
-    .setTitle('Sentinel API')
-    .setDescription('Change Intelligence Platform REST API')
-    .setVersion('0.0.1')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
+  // Swagger documentation (only in development and staging)
+  if (nodeEnv !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Sentinel API')
+      .setDescription('Change Intelligence Platform REST API')
+      .setVersion('0.0.1')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Enter JWT token',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .addTag('Health', 'Health check endpoints')
+      .addTag('Auth', 'Authentication endpoints')
+      .addTag('Users', 'User management endpoints')
+      .addTag('Monitors', 'Monitor management endpoints')
+      .addTag('Changes', 'Change detection endpoints')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup(`${configService.apiPrefix}/docs`, app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
       },
-      'JWT-auth',
-    )
-    .addTag('Health', 'Health check endpoints')
-    .addTag('Auth', 'Authentication endpoints')
-    .addTag('Users', 'User management endpoints')
-    .addTag('Monitors', 'Monitor management endpoints')
-    .addTag('Changes', 'Change detection endpoints')
-    .build();
+    });
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup(`${configService.apiPrefix}/docs`, app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-    },
-  });
+    console.log(`📚 Swagger docs available at http://localhost:${configService.port}/${configService.apiPrefix}/docs`);
+  }
 
-  // Root redirect to API docs
+  // Root redirect
   const httpAdapter = app.getHttpAdapter();
   httpAdapter.get('/', (_req: any, res: any) => {
-    res.redirect(`/${configService.apiPrefix}/docs`);
+    if (nodeEnv !== 'production') {
+      res.redirect(`/${configService.apiPrefix}/docs`);
+    } else {
+      res.json({ status: 'ok', message: 'Sentinel API' });
+    }
   });
 
   const port = configService.port;
   await app.listen(port);
 
   console.log(`🚀 Sentinel API running on http://localhost:${port}/${configService.apiPrefix}`);
-  console.log(`📚 Swagger docs available at http://localhost:${port}/${configService.apiPrefix}/docs`);
 }
 
 bootstrap();
