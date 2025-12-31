@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '../config/config.service';
 import { CreateChannelDto, ChannelType } from './dto/create-channel.dto';
 import { UpdateChannelDto } from './dto/update-channel.dto';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -14,9 +14,21 @@ export class NotificationChannelsService {
     private config: ConfigService,
   ) {}
 
+  /**
+   * Derive a cryptographically strong encryption key using scrypt
+   */
+  private deriveKey(password: string, salt: Buffer): Buffer {
+    return scryptSync(password, salt, 32, { N: 16384, r: 8, p: 1 });
+  }
+
+  /**
+   * Encrypt text using AES-256-GCM with scrypt key derivation
+   * Format: salt:iv:authTag:ciphertext
+   */
   private encrypt(text: string): string {
     const encryptionKey = this.config.encryptionKey;
-    const key = Buffer.from(encryptionKey.slice(0, 32));
+    const salt = randomBytes(16);
+    const key = this.deriveKey(encryptionKey, salt);
     const iv = randomBytes(16);
     const cipher = createCipheriv(ALGORITHM, key, iv);
 
@@ -24,27 +36,49 @@ export class NotificationChannelsService {
     encrypted += cipher.final('hex');
     const authTag = cipher.getAuthTag();
 
-    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+    return `${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   }
 
+  /**
+   * Decrypt text with backward compatibility for legacy format
+   * Legacy format: iv:authTag:ciphertext (3 parts)
+   * New format: salt:iv:authTag:ciphertext (4 parts)
+   */
   private decrypt(encryptedText: string): string {
     const encryptionKey = this.config.encryptionKey;
-    const key = Buffer.from(encryptionKey.slice(0, 32));
     const parts = encryptedText.split(':');
-    if (parts.length !== 3) {
+
+    // Detect format based on number of parts
+    if (parts.length === 3) {
+      // Legacy format without salt - use old key derivation
+      const [ivHex, authTagHex, encrypted] = parts as [string, string, string];
+      const key = Buffer.from(encryptionKey.slice(0, 32));
+      const iv = Buffer.from(ivHex, 'hex');
+      const authTag = Buffer.from(authTagHex, 'hex');
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      return decrypted;
+    } else if (parts.length === 4) {
+      // New format with salt - use scrypt key derivation
+      const [saltHex, ivHex, authTagHex, encrypted] = parts as [string, string, string, string];
+      const salt = Buffer.from(saltHex, 'hex');
+      const key = this.deriveKey(encryptionKey, salt);
+      const iv = Buffer.from(ivHex, 'hex');
+      const authTag = Buffer.from(authTagHex, 'hex');
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+
+      let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      return decrypted;
+    } else {
       throw new BadRequestException('Invalid encrypted data format');
     }
-    const [ivHex, authTagHex, encrypted] = parts as [string, string, string];
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-
-    let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
   }
 
   private getConfigFromDto(dto: CreateChannelDto): Record<string, any> {
