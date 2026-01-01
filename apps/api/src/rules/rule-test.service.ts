@@ -92,7 +92,7 @@ export class RuleTestService {
           totalMs: Date.now() - startTime,
         },
         fetch: {
-          mode: fetchMode,
+          mode: (fetchMode === 'auto' ? 'http' : fetchMode) as FetchMode,
           httpStatus: null,
           finalUrl: null,
           contentLength: null,
@@ -190,7 +190,7 @@ export class RuleTestService {
         totalMs: Date.now() - startTime,
       },
       fetch: {
-        mode: fetchResult.modeUsed ?? fetchMode,
+        mode: (fetchResult.modeUsed ?? (fetchMode === 'auto' ? 'http' : fetchMode)) as FetchMode,
         httpStatus: fetchResult.httpStatus,
         finalUrl: fetchResult.finalUrl,
         contentLength: fetchResult.html?.length ?? null,
