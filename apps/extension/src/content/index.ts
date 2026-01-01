@@ -11,6 +11,7 @@ import { finder } from '@medv/finder';
 
 // CSS-in-JS patterns that should be blacklisted from selectors
 const CSS_IN_JS_PATTERNS = [
+  // === Generic CSS-in-JS frameworks ===
   /^css-[a-z0-9]{4,}$/i,           // Emotion: css-1abc23
   /^sc-[a-z0-9-]+$/i,              // Styled Components: sc-abc123-0
   /^styled-[a-z0-9]+$/i,           // styled-jsx
@@ -22,6 +23,37 @@ const CSS_IN_JS_PATTERNS = [
   /^[a-z]{1,2}\d+$/i,              // Random short: a1, b2
   /^\d/,                           // Starts with number
   /^[a-f0-9]{6,}$/i,               // Pure hex hash
+
+  // === Amazon patterns (dynamic classes that change between requests) ===
+  /^a-[a-z]+-[a-z0-9-]+$/i,        // Amazon: a-price-whole, a-size-medium, a-color-price
+  /^aok-[a-z0-9-]+$/i,             // Amazon: aok-inline-block, aok-hidden
+  /^a-spacing-/i,                  // Amazon spacing utilities
+  /^a-declarative$/i,              // Amazon declarative (no semantic meaning)
+  /^a-popover-/i,                  // Amazon popover classes
+  /^celwidget$/i,                  // Amazon widget class
+
+  // === Walmart patterns (CSS-in-JS hash classes) ===
+  /^w_[a-zA-Z0-9]{2,}$/,           // Walmart hash: w_iUH7, w_V_DM, w_aC09
+  /^Sans-[0-9]+$/i,                // Walmart font variants
+
+  // === Tachyons/Atomic CSS utilities (used by Walmart, etc.) ===
+  /^f[0-9]$/,                      // Font size: f1-f7
+  /^lh-[a-z]+$/,                   // Line height: lh-copy, lh-solid
+  /^[pm][atrblxyhv][0-9]$/,        // Padding/margin: pa2, mt3, ph4
+  /^br[0-9]$/,                     // Border radius: br2, br3
+  /^b--[a-z0-9-]+$/,               // Border: b--black-20
+  /^bg-[a-z0-9-]+$/,               // Background utilities
+  /^w-[0-9]+$/,                    // Width utilities: w-100
+  /^h-[0-9]+$/,                    // Height utilities: h-100
+
+  // === eBay patterns ===
+  /^ux-[a-z0-9-]+$/i,              // eBay UX components
+  /^x-[a-z0-9-]+$/i,               // eBay X components
+  /^vi-[a-z0-9-]+$/i,              // eBay view item components
+
+  // === Generic hash patterns (catch remaining dynamic classes) ===
+  /^[a-z]{1,4}[A-Z][a-zA-Z0-9]{3,}$/,  // camelCase hash: aBcD123
+  /^[A-Z][a-z]+[A-Z][a-zA-Z0-9]+$/,    // PascalCamelCase: AbCdEf
 ];
 
 // Detect Google Translate font tags and warn user
