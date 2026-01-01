@@ -1202,12 +1202,21 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       // Navigation with cookies often fails due to Cloudflare blocking headless browsers
       if (options.html) {
         // Use setContent - HTML already has cookie-hiding CSS injected by FlareSolverr
+        console.log(`[ElementScreenshot] HTML size: ${options.html.length} bytes, has <li>: ${options.html.includes('<li')}`);
         await page.setContent(options.html, {
           timeout: options.timeout || 30000,
           waitUntil: 'domcontentloaded'
         });
         console.log('[ElementScreenshot] Using pre-fetched HTML with cookie-hiding CSS');
         await page.waitForTimeout(1000);
+
+        // Diagnostic: check element counts after setContent
+        const afterCounts = await page.evaluate(() => ({
+          li: document.querySelectorAll('li').length,
+          btn: document.querySelectorAll('.btn').length,
+          body: document.body?.children.length || 0,
+        }));
+        console.log(`[ElementScreenshot] After setContent: li=${afterCounts.li}, btn=${afterCounts.btn}, bodyChildren=${afterCounts.body}`);
       } else if (options.cookies) {
         // Fallback: try navigation with cookies (may fail on Cloudflare sites)
         console.log('[ElementScreenshot] Navigating with FlareSolverr cookies');
