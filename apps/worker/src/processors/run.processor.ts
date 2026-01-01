@@ -327,13 +327,13 @@ export class RunProcessor extends WorkerHost {
             );
             await this.healthScore.updateHealthScore({
               ruleId,
-              errorCode: fetchResult.errorCode || 'FETCH_ALL_TIERS_FAILED',
+              errorCode: fetchResult.errorCode || 'BLOCK_CAPTCHA_SUSPECTED',
               usedFallback: true,
             });
             return await this.handleFetchError(run.id, {
               ...fetchResult,
-              errorCode: 'FETCH_ALL_TIERS_FAILED',
-              errorDetail: `smartFetch: ${fetchResult.errorCode}, TieredFetch: ${tieredResult.error}`,
+              errorCode: fetchResult.errorCode || 'BLOCK_CAPTCHA_SUSPECTED',
+              errorDetail: `All fetch tiers failed. smartFetch: ${fetchResult.errorCode}, TieredFetch: ${tieredResult.error}`,
             });
           }
         }
