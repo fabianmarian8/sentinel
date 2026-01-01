@@ -1,0 +1,211 @@
+import { Injectable, Logger } from '@nestjs/common';
+
+/**
+ * Bright Data Web Unlocker Integration
+ *
+ * Uses Bright Data's Web Unlocker API for DataDome bypass
+ * Pricing: $1.50/1000 requests (pay-as-you-go)
+ *
+ * Features:
+ * - AI-driven CAPTCHA solving
+ * - Automatic IP rotation (100M+ pool)
+ * - Browser fingerprinting
+ * - DataDome detection and bypass
+ */
+
+export interface BrightDataFetchRequest {
+  url: string;
+  timeout?: number;
+  format?: 'raw' | 'json';
+  country?: string;
+  renderJs?: boolean;
+}
+
+export interface BrightDataFetchResult {
+  success: boolean;
+  html?: string;
+  httpStatus?: number;
+  error?: string;
+  cost?: number; // $0.0015 per request
+}
+
+@Injectable()
+export class BrightDataService {
+  private readonly logger = new Logger(BrightDataService.name);
+  private readonly apiEndpoint = 'https://api.brightdata.com/request';
+  private readonly apiToken: string;
+  private readonly zoneName: string;
+
+  constructor() {
+    this.apiToken = process.env.BRIGHTDATA_API_KEY || '';
+    this.zoneName = process.env.BRIGHTDATA_ZONE || 'web_unlocker1';
+
+    if (!this.apiToken) {
+      this.logger.warn('BRIGHTDATA_API_KEY not set - Bright Data services unavailable');
+    } else {
+      this.logger.log(`Bright Data initialized with zone: ${this.zoneName}`);
+    }
+  }
+
+  /**
+   * Check if Bright Data is available
+   */
+  isAvailable(): boolean {
+    return !!this.apiToken;
+  }
+
+  /**
+   * Fetch URL using Bright Data Web Unlocker API
+   * Automatically handles:
+   * - DataDome CAPTCHA
+   * - Cloudflare challenges
+   * - Bot detection
+   * - IP rotation
+   *
+   * Cost: ~$0.0015 per request ($1.50/1000)
+   */
+  async fetch(request: BrightDataFetchRequest): Promise<BrightDataFetchResult> {
+    if (!this.apiToken) {
+      return {
+        success: false,
+        error: 'BRIGHTDATA_API_KEY not configured',
+      };
+    }
+
+    this.logger.log(`[BrightData] Fetching: ${request.url}`);
+    const startTime = Date.now();
+
+    try {
+      const payload: Record<string, unknown> = {
+        zone: this.zoneName,
+        url: request.url,
+        format: request.format || 'raw',
+      };
+
+      // Optional: Enable JavaScript rendering for dynamic pages
+      if (request.renderJs) {
+        payload.render_js = true;
+      }
+
+      // Optional: Geo-targeting
+      if (request.country) {
+        payload.country = request.country;
+      }
+
+      const response = await fetch(this.apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiToken}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(request.timeout || 60000),
+      });
+
+      const elapsed = Date.now() - startTime;
+
+      // Check for API errors
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(
+          `[BrightData] API error ${response.status}: ${errorText}`,
+        );
+
+        // Parse common errors
+        if (response.status === 401) {
+          return {
+            success: false,
+            error: 'BRIGHTDATA_AUTH_FAILED: Invalid API token',
+            httpStatus: 401,
+          };
+        }
+
+        if (response.status === 402) {
+          return {
+            success: false,
+            error: 'BRIGHTDATA_INSUFFICIENT_BALANCE: Top up required',
+            httpStatus: 402,
+          };
+        }
+
+        if (response.status === 403) {
+          return {
+            success: false,
+            error: 'BRIGHTDATA_ZONE_INACTIVE: Zone not active or wrong name',
+            httpStatus: 403,
+          };
+        }
+
+        return {
+          success: false,
+          error: `BRIGHTDATA_API_ERROR: ${response.status} - ${errorText}`,
+          httpStatus: response.status,
+        };
+      }
+
+      // Success - get HTML content
+      const html = await response.text();
+      const cost = 0.0015; // $1.50/1000 = $0.0015 per request
+
+      this.logger.log(
+        `[BrightData] Success: ${html.length} bytes in ${elapsed}ms (~$${cost.toFixed(4)})`,
+      );
+
+      return {
+        success: true,
+        html,
+        httpStatus: 200,
+        cost,
+      };
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`[BrightData] Fetch failed: ${err.message}`);
+
+      if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
+        return {
+          success: false,
+          error: 'BRIGHTDATA_TIMEOUT: Request timed out',
+        };
+      }
+
+      return {
+        success: false,
+        error: `BRIGHTDATA_FETCH_ERROR: ${err.message}`,
+      };
+    }
+  }
+
+  /**
+   * Fetch with DataDome-specific settings
+   * Enables JS rendering and uses US IP for best compatibility
+   */
+  async fetchWithDataDomeBypass(url: string): Promise<BrightDataFetchResult> {
+    return this.fetch({
+      url,
+      renderJs: true,
+      country: 'us',
+      timeout: 90000, // DataDome solving can take longer
+    });
+  }
+
+  /**
+   * Check if HTML indicates content is blocked (DataDome, Cloudflare, etc.)
+   * Used to verify if bypass was successful
+   */
+  isBlocked(html: string): boolean {
+    if (!html || html.length < 3000) {
+      const htmlLower = html.toLowerCase();
+      return (
+        htmlLower.includes('datadome') ||
+        htmlLower.includes('captcha') ||
+        htmlLower.includes('cloudflare') ||
+        htmlLower.includes('access denied') ||
+        htmlLower.includes('blocked') ||
+        htmlLower.includes('captcha-delivery.com') ||
+        htmlLower.includes('checking your browser') ||
+        htmlLower.includes('ray id')
+      );
+    }
+    return false;
+  }
+}
