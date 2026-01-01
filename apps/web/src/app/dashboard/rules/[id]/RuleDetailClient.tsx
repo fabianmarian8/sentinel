@@ -127,6 +127,16 @@ export default function RuleDetailClient() {
     }
   };
 
+  const handleToggleCaptchaRestriction = async () => {
+    if (!rule) return;
+    try {
+      await api.updateRule(rule.id, { captchaIntervalEnforced: !rule.captchaIntervalEnforced });
+      setRule((prev) => prev ? { ...prev, captchaIntervalEnforced: !prev.captchaIntervalEnforced } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť CAPTCHA obmedzenie');
+    }
+  };
+
   const handleDelete = async () => {
     if (!rule) return;
     setIsDeleting(true);
@@ -380,12 +390,23 @@ export default function RuleDetailClient() {
                     </button>
                   </dd>
                 )}
-                {rule.captchaIntervalEnforced && (
-                  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-                    <div className="flex items-center gap-1.5">
-                      <span>🔒</span>
+                <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-amber-800">
+                      <span>{rule.captchaIntervalEnforced ? '🔒' : '🔓'}</span>
                       <span className="font-medium">CAPTCHA obmedzenie</span>
                     </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rule.captchaIntervalEnforced}
+                        onChange={handleToggleCaptchaRestriction}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                    </label>
+                  </div>
+                  {rule.captchaIntervalEnforced ? (
                     <p className="mt-1 text-amber-600">
                       Stránka vyžaduje CAPTCHA. Interval bol automaticky zmenený na 1 deň pre úsporu nákladov.
                       {rule.originalSchedule?.intervalSeconds && (
@@ -394,8 +415,12 @@ export default function RuleDetailClient() {
                         </span>
                       )}
                     </p>
-                  </div>
-                )}
+                  ) : (
+                    <p className="mt-1 text-gray-500">
+                      CAPTCHA obmedzenie je vypnuté. Normálny interval kontroly je aktívny.
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="pt-3 border-t border-gray-100">
                 <div className="flex items-center justify-between">

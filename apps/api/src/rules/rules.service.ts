@@ -440,6 +440,8 @@ export class RulesService {
         updateData.screenshotOnChange = dto.screenshotOnChange;
       if (dto.selectorFingerprint !== undefined)
         updateData.selectorFingerprint = dto.selectorFingerprint as any;
+      if (dto.captchaIntervalEnforced !== undefined)
+        updateData.captchaIntervalEnforced = dto.captchaIntervalEnforced;
 
       // If schedule is being updated, recalculate nextRunAt
       if (dto.schedule !== undefined) {

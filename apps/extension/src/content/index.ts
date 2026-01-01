@@ -24,6 +24,24 @@ const CSS_IN_JS_PATTERNS = [
   /^[a-f0-9]{6,}$/i,               // Pure hex hash
 ];
 
+// Detect Google Translate font tags and warn user
+function isGoogleTranslateActive(): boolean {
+  return document.querySelector('html.translated-ltr, html.translated-rtl, .goog-te-banner-frame') !== null
+    || document.body.classList.contains('translated-ltr')
+    || document.body.classList.contains('translated-rtl');
+}
+
+// Remove Google Translate font tags from selector
+function cleanGoogleTranslateSelector(selector: string): string {
+  // Remove patterns like " > font > font", " font > font", "font > ", etc.
+  return selector
+    .replace(/\s*>\s*font\s*>\s*font/gi, '')
+    .replace(/\s*font\s*>\s*font\s*>/gi, '')
+    .replace(/\s*>\s*font$/gi, '')
+    .replace(/^font\s*>\s*/gi, '')
+    .trim();
+}
+
 // Check if a class name is likely generated/unstable
 function isUnstableClassName(name: string): boolean {
   if (name.length > 40) return true; // Too long = likely hash
@@ -153,13 +171,26 @@ function updateHighlight(element: Element): void {
 
 // Generate unique CSS selector for element using @medv/finder
 function generateSelector(element: Element): string {
+  // Warn if Google Translate is active
+  if (isGoogleTranslateActive()) {
+    console.warn('Sentinel: Google Translate detected! Selectors may include <font> tags. Disable translation for best results.');
+  }
+
+  // Skip Google Translate font wrapper elements - go to actual content
+  let targetElement = element;
+  while (targetElement.tagName.toLowerCase() === 'font' && targetElement.parentElement) {
+    targetElement = targetElement.parentElement;
+  }
+
   try {
     // Use @medv/finder with optimized settings
-    const selector = finder(element, {
+    let selector = finder(targetElement, {
       // Filter out unstable CSS-in-JS class names
       className: (name) => !isUnstableClassName(name),
       // Filter out unstable IDs (CSS-in-JS generated)
       idName: (name) => !isUnstableClassName(name),
+      // Filter out font tags (Google Translate)
+      tagName: (name) => name.toLowerCase() !== 'font',
       // Prefer stable attributes
       attr: (name, value) => {
         // Always use data-testid, aria-label, role
@@ -177,11 +208,14 @@ function generateSelector(element: Element): string {
       maxNumberOfPathChecks: 10000,
     });
 
+    // Clean any remaining Google Translate font tags from selector
+    selector = cleanGoogleTranslateSelector(selector);
+
     return selector;
   } catch (error) {
     // Fallback to legacy selector generation if finder fails
     console.warn('Sentinel: finder failed, using fallback', error);
-    return generateFallbackSelector(element);
+    return cleanGoogleTranslateSelector(generateFallbackSelector(targetElement));
   }
 }
 
