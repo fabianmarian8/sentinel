@@ -18,7 +18,7 @@ export interface BrightDataFetchRequest {
   timeout?: number;
   format?: 'raw' | 'json';
   country?: string;
-  renderJs?: boolean;
+  // Note: Web Unlocker handles JS rendering automatically, no need for renderJs option
 }
 
 export interface BrightDataFetchResult {
@@ -82,12 +82,7 @@ export class BrightDataService {
         format: request.format || 'raw',
       };
 
-      // Optional: Enable JavaScript rendering for dynamic pages
-      if (request.renderJs) {
-        payload.render_js = true;
-      }
-
-      // Optional: Geo-targeting
+      // Optional: Geo-targeting (Web Unlocker handles JS rendering automatically)
       if (request.country) {
         payload.country = request.country;
       }
@@ -177,12 +172,11 @@ export class BrightDataService {
 
   /**
    * Fetch with DataDome-specific settings
-   * Enables JS rendering and uses US IP for best compatibility
+   * Uses US IP for best compatibility (JS rendering is automatic)
    */
   async fetchWithDataDomeBypass(url: string): Promise<BrightDataFetchResult> {
     return this.fetch({
       url,
-      renderJs: true,
       country: 'us',
       timeout: 90000, // DataDome solving can take longer
     });
