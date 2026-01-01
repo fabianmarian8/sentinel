@@ -203,18 +203,8 @@ export async function validateUrl(url: string): Promise<UrlValidationResult> {
     };
   }
 
-  // Check for IPv6 addresses and block them
-  try {
-    const resolvedIps6 = await dns.resolve6(hostname);
-    if (resolvedIps6.length > 0) {
-      return {
-        valid: false,
-        reason: 'IPv6 addresses are not supported for security reasons',
-      };
-    }
-  } catch {
-    // No IPv6 records found, continue
-  }
+  // Note: We only use IPv4 (resolve4) for fetching.
+  // Having IPv6 records is fine - we simply ignore them and use IPv4.
 
   // Check if any resolved IP is private
   for (const ip of resolvedIps) {

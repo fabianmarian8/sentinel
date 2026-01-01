@@ -64,7 +64,7 @@ export class RuleTestService {
     }
 
     const url = rule.source.url;
-    const fetchMode: FetchMode = rule.source.fetchProfile?.mode ?? 'http';
+    const fetchMode = rule.source.fetchProfile?.mode ?? 'auto';  // 'auto' enables FlareSolverr fallback
     const extraction = rule.extraction as unknown as ExtractionConfig;
 
     // Step 1: Fetch
@@ -74,7 +74,7 @@ export class RuleTestService {
     try {
       fetchResult = await smartFetch({
         url,
-        timeout: 20000,
+        timeout: 120000, // 2 minutes for FlareSolverr challenges
         userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
         headers: rule.source.fetchProfile?.headers
           ? (rule.source.fetchProfile.headers as Record<string, string>)
@@ -182,7 +182,7 @@ export class RuleTestService {
       };
     }
 
-    return {
+    const response = {
       success: fetchResult.success && extractResult.success,
       timing: {
         fetchMs,
@@ -210,5 +210,8 @@ export class RuleTestService {
       errors,
       warnings,
     };
+
+    console.log('[RuleTestService] Full response:', JSON.stringify(response));
+    return response;
   }
 }
