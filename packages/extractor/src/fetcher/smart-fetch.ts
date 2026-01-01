@@ -157,7 +157,7 @@ export async function smartFetch(
             url: options.url,
             selector: options.screenshotSelector,
             outputPath: options.screenshotPath,
-            padding: 30, // Small context around element
+            padding: 189, // ~10x10cm context around element (378px / 2)
             dismissCookies: true, // Will click cookie banner dismiss button
             userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
             // Pass cf_clearance and other cookies from FlareSolverr
@@ -177,7 +177,7 @@ export async function smartFetch(
               url: options.url,
               selector: options.screenshotSelector,
               outputPath: options.screenshotPath,
-              padding: 30,
+              padding: 189,
               dismissCookies: true,
               userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
               cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
