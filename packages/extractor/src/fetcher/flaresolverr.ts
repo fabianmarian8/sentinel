@@ -42,6 +42,13 @@ export interface FlareSolverrOptions extends FetchOptions {
    * Custom session name (overrides auto-generated domain-based name)
    */
   sessionName?: string;
+
+  /**
+   * Wait time in seconds after challenge solved, before returning results
+   * Useful for SPA sites that load dynamic content via AJAX
+   * @see https://github.com/FlareSolverr/FlareSolverr#waitinseconds
+   */
+  waitInSeconds?: number;
 }
 
 export interface FlareSolverrResponse {
@@ -175,6 +182,11 @@ export async function fetchFlareSolverr(
     // Request screenshot if enabled
     if (options.returnScreenshot) {
       requestBody.returnScreenshot = true;
+    }
+
+    // Wait for dynamic content (SPA sites)
+    if (options.waitInSeconds) {
+      requestBody.waitInSeconds = options.waitInSeconds;
     }
 
     const response = await fetch(flareSolverrUrl, {
