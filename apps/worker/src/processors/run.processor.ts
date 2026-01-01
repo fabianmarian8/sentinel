@@ -13,6 +13,8 @@ import { ConditionEvaluatorService } from '../services/condition-evaluator.servi
 import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
+import { LlmExtractionService } from '../services/llm-extraction.service';
+import { TieredFetchService } from '../services/tiered-fetch.service';
 import { smartFetch, extract, processAntiFlap } from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
 import type {
@@ -53,6 +55,8 @@ export class RunProcessor extends WorkerHost {
     private alertGenerator: AlertGeneratorService,
     private rateLimiter: RateLimiterService,
     private healthScore: HealthScoreService,
+    private llmExtraction: LlmExtractionService,
+    private tieredFetch: TieredFetchService,
   ) {
     super();
   }
@@ -251,11 +255,95 @@ export class RunProcessor extends WorkerHost {
         }
       }
 
-      if (!fetchResult.success) {
+      // =====================================================
+      // TIERED FETCH FALLBACK: If smartFetch failed OR got blocked HTML
+      // =====================================================
+      let paidTierUsed = false;
+      let fetchHtml = fetchResult.html || '';
+      const htmlSize = fetchHtml.length;
+      const htmlLower = fetchHtml.toLowerCase();
+
+      // Check if we should try TieredFetch:
+      // 1. SmartFetch completely failed (HTTP 403, etc.)
+      // 2. SmartFetch succeeded but returned blocked HTML
+      const isBlocked = !fetchResult.success || (htmlSize < 5000 && (
+        htmlLower.includes('datadome') ||
+        htmlLower.includes('captcha-delivery.com') ||
+        htmlLower.includes('cloudflare') ||
+        htmlLower.includes('captcha') ||
+        htmlLower.includes('access denied') ||
+        htmlLower.includes('blocked') ||
+        htmlLower.includes('checking your browser')
+      ));
+
+      if (isBlocked) {
+        this.logger.warn(
+          `[Job ${job.id}] Free tier returned blocked HTML (${htmlSize} bytes), trying TieredFetch...`,
+        );
+
+        const tieredResult = await this.tieredFetch.fetch({
+          url: rule.source.url,
+          userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
+          headers: rule.source.fetchProfile?.headers
+            ? (rule.source.fetchProfile.headers as Record<string, string>)
+            : undefined,
+          cookies: rule.source.fetchProfile?.cookies
+            ? (rule.source.fetchProfile.cookies as string)
+            : undefined,
+          timeout: 30000,
+          renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
+          allowPaidTier: true, // Allow paid services for blocked sites
+        });
+
+        if (tieredResult.success && tieredResult.html) {
+          fetchHtml = tieredResult.html;
+          paidTierUsed = tieredResult.paidServiceUsed;
+
+          this.logger.log(
+            `[Job ${job.id}] TieredFetch succeeded via ${tieredResult.methodUsed} (tier: ${tieredResult.tierUsed}, cost: $${tieredResult.estimatedCost?.toFixed(4) || '0'})`,
+          );
+
+          // Update run with new fetch mode
+          // Note: Using 'http' for proxy since FetchMode enum doesn't have proxy values
+          await this.prisma.run.update({
+            where: { id: run.id },
+            data: {
+              fetchModeUsed: 'http', // Proxy is essentially HTTP via proxy
+              contentHash: createHash('sha256').update(fetchHtml).digest('hex'),
+              // Store actual method in metadata via errorDetail (no schema change needed)
+              errorDetail: tieredResult.paidServiceUsed
+                ? `Paid tier used: ${tieredResult.methodUsed}`
+                : undefined,
+            },
+          });
+        } else {
+          this.logger.warn(
+            `[Job ${job.id}] TieredFetch also failed: ${tieredResult.error}`,
+          );
+          // If original smartFetch also failed, we have nothing to extract
+          if (!fetchResult.success) {
+            this.logger.error(
+              `[Job ${job.id}] Both smartFetch and TieredFetch failed, giving up`,
+            );
+            await this.healthScore.updateHealthScore({
+              ruleId,
+              errorCode: fetchResult.errorCode || 'FETCH_ALL_TIERS_FAILED',
+              usedFallback: true,
+            });
+            return await this.handleFetchError(run.id, {
+              ...fetchResult,
+              errorCode: 'FETCH_ALL_TIERS_FAILED',
+              errorDetail: `smartFetch: ${fetchResult.errorCode}, TieredFetch: ${tieredResult.error}`,
+            });
+          }
+        }
+      }
+
+      // If smartFetch failed but we didn't try TieredFetch (shouldn't happen), handle error
+      if (!fetchResult.success && fetchHtml.length === 0) {
         this.logger.error(
           `[Job ${job.id}] Fetch failed: ${fetchResult.errorCode} - ${fetchResult.errorDetail}`,
         );
-        // Update health score on fetch error
         await this.healthScore.updateHealthScore({
           ruleId,
           errorCode: fetchResult.errorCode,
@@ -264,8 +352,31 @@ export class RunProcessor extends WorkerHost {
         return await this.handleFetchError(run.id, fetchResult);
       }
 
-      // Step 6: Extract value (extraction already defined above for screenshotSelector)
-      let extractResult = extract(fetchResult.html!, extraction);
+      // AUTO-THROTTLE: If paid tier was used, enforce 1-day minimum interval
+      if (paidTierUsed && !rule.captchaIntervalEnforced) {
+        const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
+        const currentInterval = currentSchedule?.intervalSeconds ?? 0;
+        const ONE_DAY_SEC = 86400;
+
+        if (currentInterval < ONE_DAY_SEC) {
+          const newNextRunAt = new Date(Date.now() + ONE_DAY_SEC * 1000);
+          await this.prisma.rule.update({
+            where: { id: ruleId },
+            data: {
+              captchaIntervalEnforced: true,
+              originalSchedule: rule.schedule as any,
+              schedule: { ...currentSchedule, intervalSeconds: ONE_DAY_SEC },
+              nextRunAt: newNextRunAt,
+            },
+          });
+          this.logger.warn(
+            `[Job ${job.id}] Rule ${ruleId}: PAID tier used (proxy/DataDome), interval changed to 1 day to minimize costs`,
+          );
+        }
+      }
+
+      // Step 6: Extract value (use fetchHtml which may be from TieredFetch)
+      let extractResult = extract(fetchHtml, extraction);
       let selectorHealed = false;
       let healedSelector: string | null = null;
 
@@ -297,7 +408,7 @@ export class RunProcessor extends WorkerHost {
             }
 
             const altConfig = { ...extraction, selector: altSelector };
-            const altResult = extract(fetchResult.html!, altConfig);
+            const altResult = extract(fetchHtml, altConfig);
 
             if (altResult.success) {
               // Validate with textAnchor if available
@@ -345,6 +456,67 @@ export class RunProcessor extends WorkerHost {
         }
       }
 
+      // LLM FALLBACK: If CSS extraction failed (including auto-healing), try LLM for price rules
+      let llmUsed = false;
+      if (!extractResult.success && rule.ruleType === 'price') {
+        this.logger.log(
+          `[Job ${job.id}] CSS extraction failed, trying LLM fallback for ${rule.source.url}`,
+        );
+
+        try {
+          // Detect if page is blocked by CAPTCHA (small HTML with protection patterns)
+          // Note: fetchHtml may already be updated by TieredFetch above
+          const llmHtmlSize = fetchHtml.length;
+          const llmHtmlLower = fetchHtml.toLowerCase();
+          const isDataDomeBlocked = llmHtmlSize < 5000 && (
+            llmHtmlLower.includes('datadome') ||
+            llmHtmlLower.includes('captcha-delivery.com') ||
+            llmHtmlLower.includes('dd.js') ||
+            llmHtmlLower.includes('geo.captcha')
+          );
+
+          let llmResult;
+          if (isDataDomeBlocked) {
+            // Use alternative fetch for DataDome blocked pages (mobile UA)
+            this.logger.log(
+              `[Job ${job.id}] DataDome detected (${llmHtmlSize} bytes), trying mobile UA fetch`,
+            );
+            llmResult = await this.llmExtraction.extractWithAlternativeFetch({
+              url: rule.source.url,
+              ruleType: 'price',
+            });
+          } else {
+            // Use HTML extraction for normal pages
+            llmResult = await this.llmExtraction.extractWithLlm({
+              url: rule.source.url,
+              ruleType: 'price',
+              html: fetchHtml,
+            });
+          }
+
+          if (llmResult.success && llmResult.price) {
+            extractResult = {
+              success: true,
+              value: llmResult.price,
+              error: undefined,
+              fallbackUsed: true,
+              selectorUsed: llmResult.method === 'websearch' ? 'LLM_WEBSEARCH' : 'LLM_FALLBACK',
+            };
+            llmUsed = true;
+            this.logger.log(
+              `[Job ${job.id}] LLM extracted price: ${llmResult.price} (method: ${llmResult.method}, confidence: ${llmResult.confidence})`,
+            );
+          } else {
+            this.logger.warn(
+              `[Job ${job.id}] LLM extraction also failed: ${llmResult.error}`,
+            );
+          }
+        } catch (llmError) {
+          const llmErr = llmError as Error;
+          this.logger.error(`[Job ${job.id}] LLM fallback error: ${llmErr.message}`);
+        }
+      }
+
       if (!extractResult.success) {
         await this.prisma.run.update({
           where: { id: run.id },
@@ -364,6 +536,15 @@ export class RunProcessor extends WorkerHost {
           `[Job ${job.id}] Extraction failed: ${extractResult.error}`,
         );
         return { success: false, error: 'Extraction failed' };
+      }
+
+      // If LLM was used successfully, update health score with LLM fallback indicator
+      if (llmUsed) {
+        await this.healthScore.updateHealthScore({
+          ruleId,
+          errorCode: null,
+          usedFallback: true,
+        });
       }
 
       // If healed, update health score with fallback indicator
