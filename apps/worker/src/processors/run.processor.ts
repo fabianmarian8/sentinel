@@ -163,7 +163,7 @@ export class RunProcessor extends WorkerHost {
 
     if (screenshotOnChange) {
       tempDir = await mkdtemp(join(tmpdir(), 'sentinel-screenshot-'));
-      screenshotPath = join(tempDir, `screenshot-${run.id}.png`);
+      screenshotPath = join(tempDir, `screenshot-${run.id}.jpg`);
     }
 
     try {

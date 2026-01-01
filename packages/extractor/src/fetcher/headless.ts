@@ -401,7 +401,7 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
         const screenshotQuality = options.screenshotQuality ?? 80;
         const screenshotType = 'jpeg' as const;
 
-        // If selector provided, screenshot element with padding (~200px = ~5cm context)
+        // If selector provided, screenshot element with padding (~400px = ~10cm context)
         if (options.screenshotSelector) {
           const element = await page.$(options.screenshotSelector);
           if (element) {
@@ -411,8 +411,8 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
 
             const box = await element.boundingBox();
             if (box) {
-              // Add 200px padding around element (clamped to viewport)
-              const padding = 200;
+              // Add 400px padding around element for ~10cm context (clamped to viewport)
+              const padding = 400;
               const viewport = page.viewportSize() || { width: 1920, height: 1080 };
               const clip = {
                 x: Math.max(0, box.x - padding),
@@ -436,20 +436,20 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
             }
             screenshotPath = options.screenshotPath;
           } else {
-            // Fallback to full page if element not found
+            // Fallback: viewport-only screenshot (NOT full page - too large/unreadable)
             await page.screenshot({
               path: options.screenshotPath,
-              fullPage: true,
+              fullPage: false,
               type: screenshotType,
               quality: screenshotQuality,
             });
             screenshotPath = options.screenshotPath;
           }
         } else {
-          // Full page screenshot
+          // Viewport-only screenshot (NOT full page - too large/unreadable)
           await page.screenshot({
             path: options.screenshotPath,
-            fullPage: true,
+            fullPage: false,
             type: screenshotType,
             quality: screenshotQuality,
           });
@@ -1148,7 +1148,7 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
   screenshotPath?: string;
   error?: string;
 }> {
-  const padding = options.padding ?? 200;
+  const padding = options.padding ?? 400; // ~10cm context around element
   const dismissCookies = options.dismissCookies !== false;
 
   const browser = await getBrowser();
