@@ -289,18 +289,18 @@ export default function RuleDetailClient() {
             <h3 className={`font-medium ${testResult.success ? 'text-green-800' : 'text-red-800'}`}>
               Test {testResult.success ? 'úspešný' : 'zlyhal'}
             </h3>
-            <div className="mt-2 grid grid-cols-3 gap-4 text-sm">
+            <div className="mt-2 grid grid-cols-3 gap-4 text-sm text-gray-700">
               <div>
                 <span className="text-gray-500">Čas načítania:</span>{' '}
-                <span className="font-medium">{testResult.timing?.fetchMs || 'N/A'}ms</span>
+                <span className="font-medium text-gray-900">{testResult.timing?.fetchMs || 'N/A'}ms</span>
               </div>
               <div>
                 <span className="text-gray-500">HTTP stav:</span>{' '}
-                <span className="font-medium">{testResult.fetch?.httpStatus || 'N/A'}</span>
+                <span className="font-medium text-gray-900">{testResult.fetch?.httpStatus || 'N/A'}</span>
               </div>
               <div>
                 <span className="text-gray-500">Extrahovaná hodnota:</span>{' '}
-                <span className="font-medium">{testResult.extraction?.rawValue || 'N/A'}</span>
+                <span className="font-medium text-gray-900">{testResult.extraction?.rawValue || 'N/A'}</span>
               </div>
             </div>
             {testResult.errors && testResult.errors.length > 0 && (
