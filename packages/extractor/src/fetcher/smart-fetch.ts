@@ -170,27 +170,46 @@ export async function smartFetch(
             finalScreenshotPath = screenshotResult.screenshotPath || null;
             logger.debug(`Element screenshot captured: ${finalScreenshotPath}`);
           } else {
-            logger.warn(`Element screenshot failed: ${screenshotResult.error}, trying setContent screenshot`);
-            // Fallback 1: Try Playwright with setContent (HTML already has cookie-hiding CSS)
-            const setContentScreenshot = await takeFullPageScreenshot({
-              html: flareSolverrResult.html || '',
+            // Fallback 1: Try navigation with cookies (for SPA sites that need JS execution)
+            // setContent doesn't run JavaScript, so dynamic content won't load
+            logger.warn(`Element screenshot failed: ${screenshotResult.error}, trying navigation with cookies`);
+            const navigationResult = await takeElementScreenshot({
+              url: options.url,
+              selector: options.screenshotSelector,
               outputPath: options.screenshotPath,
+              padding: 200,
+              dismissCookies: true,
+              userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
+              cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
+              // NO html - forces navigation which executes JavaScript
             });
 
-            if (setContentScreenshot.success) {
-              finalScreenshotPath = setContentScreenshot.screenshotPath || null;
-              logger.debug(`setContent screenshot captured: ${finalScreenshotPath}`);
+            if (navigationResult.success) {
+              finalScreenshotPath = navigationResult.screenshotPath || null;
+              logger.debug(`Navigation screenshot captured: ${finalScreenshotPath}`);
             } else {
-              // Fallback 2: request full-page screenshot from FlareSolverr (has cookie banner but works)
-              logger.warn(`setContent failed, using FlareSolverr full-page`);
-              const retryResult = await fetchFlareSolverr({
-                ...options,
-                flareSolverrUrl,
-                returnScreenshot: true,
-                screenshotPath: options.screenshotPath,
+              logger.warn(`Navigation also failed: ${navigationResult.error}, trying setContent screenshot`);
+              // Fallback 2: Try Playwright with setContent (HTML already has cookie-hiding CSS)
+              const setContentScreenshot = await takeFullPageScreenshot({
+                html: flareSolverrResult.html || '',
+                outputPath: options.screenshotPath,
               });
-              if (retryResult.success) {
-                finalScreenshotPath = retryResult.screenshotPath || null;
+
+              if (setContentScreenshot.success) {
+                finalScreenshotPath = setContentScreenshot.screenshotPath || null;
+                logger.debug(`setContent screenshot captured: ${finalScreenshotPath}`);
+              } else {
+                // Fallback 3: request full-page screenshot from FlareSolverr (has cookie banner but works)
+                logger.warn(`setContent failed, using FlareSolverr full-page`);
+                const retryResult = await fetchFlareSolverr({
+                  ...options,
+                  flareSolverrUrl,
+                  returnScreenshot: true,
+                  screenshotPath: options.screenshotPath,
+                });
+                if (retryResult.success) {
+                  finalScreenshotPath = retryResult.screenshotPath || null;
+                }
               }
             }
           }
