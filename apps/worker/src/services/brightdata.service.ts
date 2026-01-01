@@ -87,6 +87,8 @@ export class BrightDataService {
         payload.country = request.country;
       }
 
+      this.logger.debug(`[BrightData] Request payload: ${JSON.stringify(payload)}`);
+
       const response = await fetch(this.apiEndpoint, {
         method: 'POST',
         headers: {
@@ -98,6 +100,9 @@ export class BrightDataService {
       });
 
       const elapsed = Date.now() - startTime;
+
+      // Debug: Log response details
+      this.logger.debug(`[BrightData] Response status: ${response.status}, headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
 
       // Check for API errors
       if (!response.ok) {
@@ -145,6 +150,27 @@ export class BrightDataService {
       this.logger.log(
         `[BrightData] Success: ${html.length} bytes in ${elapsed}ms (~$${cost.toFixed(4)})`,
       );
+
+      // Validate response - empty responses are failures
+      if (!html || html.length === 0) {
+        this.logger.error(`[BrightData] Empty response received from API`);
+        return {
+          success: false,
+          error: 'BRIGHTDATA_EMPTY_RESPONSE: API returned empty content',
+          httpStatus: response.status,
+        };
+      }
+
+      // Check if response is still blocked (shouldn't happen with Web Unlocker but safety check)
+      if (html.length < 5000 && this.isBlocked(html)) {
+        this.logger.warn(`[BrightData] Response appears blocked: ${html.substring(0, 200)}`);
+        return {
+          success: false,
+          html,
+          error: 'BRIGHTDATA_STILL_BLOCKED: Protection not bypassed',
+          httpStatus: response.status,
+        };
+      }
 
       return {
         success: true,
