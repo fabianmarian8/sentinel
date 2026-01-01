@@ -1236,7 +1236,9 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
       }
 
       // Use comprehensive cookie banner removal
-      if (dismissCookies) {
+      // Skip if using pre-fetched HTML from FlareSolverr - it already has cookie-hiding CSS injected
+      // IMPORTANT: removeCookieBanners() has waitForLoadState which resets DOM after setContent()
+      if (dismissCookies && !options.html) {
         await removeCookieBanners(page);
       }
 
