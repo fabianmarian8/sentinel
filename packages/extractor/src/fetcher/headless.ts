@@ -859,23 +859,40 @@ async function removeCookieBanners(page: Page): Promise<{ clicked: boolean; remo
     // Layer 1.5: Try clicking by text content (for popups without stable selectors)
     if (!clicked) {
       const dismissTexts = [
-        'Rozumiem',      // Slovak "I understand" (Alza B2B popup)
-        'Odmietnuť všetko', // Slovak "Reject all"
-        'Odmietnuť',     // Slovak "Reject"
-        'Zavrieť',       // Slovak "Close"
-        'Súhlasím',      // Slovak "I agree"
-        'Prijať',        // Slovak "Accept"
-        'Prijať všetko', // Slovak "Accept all"
+        // Slovak B2B popup texts (Alza "Máte IČO?" etc.)
+        'Nie, ďakujem',           // "No, thank you"
+        'Nie',                     // "No"
+        'Som súkromná osoba',      // "I'm a private person"
+        'Nakupujem pre seba',      // "I'm buying for myself"
+        'Pokračovať',              // "Continue"
+        'Preskočiť',               // "Skip"
+        // Slovak cookie consent texts
+        'Rozumiem',                // "I understand"
+        'Odmietnuť všetko',        // "Reject all"
+        'Odmietnuť',               // "Reject"
+        'Zavrieť',                 // "Close"
+        'Súhlasím',                // "I agree"
+        'Prijať',                  // "Accept"
+        'Prijať všetko',           // "Accept all"
+        // Czech equivalents
+        'Ne, děkuji',              // Czech "No, thank you"
+        'Jsem soukromá osoba',     // Czech "I'm a private person"
+        'Odmítnout vše',           // Czech "Reject all"
+        'Odmítnout',               // Czech "Reject"
+        'Zavřít',                  // Czech "Close"
+        'Souhlasím',               // Czech "I agree"
+        // Generic
         'OK',
         'Close',
         'Dismiss',
-        'Schließen',     // German "Close"
+        'Schließen',               // German "Close"
       ];
 
+      // Try buttons first
       for (const text of dismissTexts) {
         try {
           const btn = page.getByRole('button', { name: text, exact: false });
-          if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
+          if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
             await btn.click({ timeout: 2000 });
             console.log(`[CookieBanner] Clicked button by text: "${text}"`);
             clicked = true;
@@ -884,6 +901,64 @@ async function removeCookieBanners(page: Page): Promise<{ clicked: boolean; remo
           }
         } catch {
           // Button not found or not visible, continue
+        }
+      }
+
+      // Try links if no button found (some popups use <a> tags)
+      if (!clicked) {
+        for (const text of dismissTexts) {
+          try {
+            const link = page.getByRole('link', { name: text, exact: false });
+            if (await link.isVisible({ timeout: 300 }).catch(() => false)) {
+              await link.click({ timeout: 2000 });
+              console.log(`[CookieBanner] Clicked link by text: "${text}"`);
+              clicked = true;
+              await page.waitForTimeout(500);
+              break;
+            }
+          } catch {
+            // Link not found or not visible, continue
+          }
+        }
+      }
+
+      // Try generic close button by aria-label (X buttons without text)
+      if (!clicked) {
+        const closeLabels = ['close', 'zavrieť', 'zavřít', 'schließen', 'fermer'];
+        for (const label of closeLabels) {
+          try {
+            const closeBtn = page.locator(`button[aria-label*="${label}" i], [role="button"][aria-label*="${label}" i]`).first();
+            if (await closeBtn.isVisible({ timeout: 300 }).catch(() => false)) {
+              await closeBtn.click({ timeout: 2000 });
+              console.log(`[CookieBanner] Clicked close button by aria-label: "${label}"`);
+              clicked = true;
+              await page.waitForTimeout(500);
+              break;
+            }
+          } catch {
+            // Close button not found, continue
+          }
+        }
+      }
+    }
+
+    // Layer 1.6: Retry for lazy-loaded popups (B2B promos that appear with delay)
+    if (!clicked) {
+      await page.waitForTimeout(1500); // Wait for lazy popups
+
+      const lazyPopupTexts = ['Nie, ďakujem', 'Nie', 'Pokračovať', 'Preskočiť', 'Ne, děkuji'];
+      for (const text of lazyPopupTexts) {
+        try {
+          const btn = page.getByRole('button', { name: text, exact: false });
+          if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+            await btn.click({ timeout: 2000 });
+            console.log(`[CookieBanner] Clicked lazy popup button: "${text}"`);
+            clicked = true;
+            await page.waitForTimeout(500);
+            break;
+          }
+        } catch {
+          // Button not found, continue
         }
       }
     }

@@ -11,6 +11,11 @@ export const CAPTCHA_PATTERNS = [
   /please verify/i,
   /security check/i,
   /complete.*verification/i,
+  // DataDome patterns
+  /datadome/i,
+  /geo\.captcha-delivery\.com/i,
+  /dd\.js/i,
+  /interstitial\.datadome\.js/i,
 ];
 
 export const CLOUDFLARE_PATTERNS = [
@@ -66,4 +71,7 @@ export const PROTECTION_HEADERS = [
   'x-amz-cf-id',  // AWS CloudFront
   'x-sucuri-id',  // Sucuri WAF
   'x-akamai-transformed',  // Akamai
+  'x-datadome',  // DataDome
+  'x-datadome-cid',  // DataDome client ID
+  'set-cookie',  // DataDome sets datadome cookie
 ];

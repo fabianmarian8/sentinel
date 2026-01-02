@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { extract, detectBlock, smartFetch } from '@sentinel/extractor';
 import type { ExtractionConfig, FetchMode } from '@sentinel/shared';
+import { LlmExtractionService } from '../extraction/llm-extraction.service';
 
 export interface RuleTestResult {
   success: boolean;
@@ -26,6 +27,7 @@ export interface RuleTestResult {
     errorMessage: string | null;
     selectorUsed: string | null;
     fallbackUsed: boolean;
+    llmUsed: boolean;
   };
   html?: {
     sample: string;
@@ -37,7 +39,12 @@ export interface RuleTestResult {
 
 @Injectable()
 export class RuleTestService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(RuleTestService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private llmExtraction: LlmExtractionService,
+  ) {}
 
   /**
    * Test a rule by executing fetch + extract without persisting results
@@ -107,6 +114,7 @@ export class RuleTestService {
           errorMessage: 'Fetch failed, cannot extract',
           selectorUsed: null,
           fallbackUsed: false,
+          llmUsed: false,
         },
         errors: [`Fetch failed: ${err.message}`],
         warnings,
@@ -137,6 +145,7 @@ export class RuleTestService {
       value: null as string | null,
       error: null as string | null,
       fallbackUsed: false,
+      llmUsed: false,
     };
 
     if (fetchResult.success && fetchResult.html) {
@@ -147,13 +156,47 @@ export class RuleTestService {
           value: result.value ?? null,
           error: result.error ?? null,
           fallbackUsed: result.fallbackUsed,
+          llmUsed: false,
         };
 
-        if (!result.success) {
-          errors.push(`Extraction failed: ${result.error}`);
+        // LLM FALLBACK: If CSS extraction failed, try LLM for price rules
+        if (!result.success && rule.ruleType === 'price') {
+          this.logger.log(`CSS extraction failed, trying LLM fallback for ${url}`);
+          warnings.push('CSS selector failed, attempting LLM extraction');
+
+          try {
+            const llmResult = await this.llmExtraction.extractWithLlm({
+              url,
+              ruleType: 'price',
+              html: fetchResult.html,
+            });
+
+            if (llmResult.success && llmResult.price) {
+              extractResult = {
+                success: true,
+                value: llmResult.price,
+                error: null,
+                fallbackUsed: true,
+                llmUsed: true,
+              };
+              warnings.push(
+                `LLM extracted: ${llmResult.price} (confidence: ${llmResult.confidence})`,
+              );
+            } else {
+              errors.push(`LLM extraction also failed: ${llmResult.error}`);
+            }
+          } catch (llmError) {
+            const llmErr = llmError as Error;
+            this.logger.error(`LLM fallback error: ${llmErr.message}`);
+            errors.push(`LLM fallback error: ${llmErr.message}`);
+          }
         }
 
-        if (result.fallbackUsed) {
+        if (!extractResult.success) {
+          errors.push(`Extraction failed: ${extractResult.error}`);
+        }
+
+        if (extractResult.fallbackUsed && !extractResult.llmUsed) {
           warnings.push(`Primary selector failed, using fallback selector`);
         }
       } catch (error) {
@@ -163,6 +206,7 @@ export class RuleTestService {
           value: null,
           error: err.message,
           fallbackUsed: false,
+          llmUsed: false,
         };
         errors.push(`Extraction error: ${err.message}`);
       }
@@ -205,6 +249,7 @@ export class RuleTestService {
         errorMessage: extractResult.error,
         selectorUsed: extraction.selector,
         fallbackUsed: extractResult.fallbackUsed,
+        llmUsed: extractResult.llmUsed,
       },
       html: htmlSample,
       errors,
