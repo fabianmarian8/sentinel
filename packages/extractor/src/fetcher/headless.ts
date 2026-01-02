@@ -82,7 +82,7 @@ interface BrowserEntry {
  * and zombie Chromium processes.
  *
  * Key features:
- * - Max 3 browser instances
+ * - Max 1 browser instance (jobs run sequentially)
  * - Idle timeout: 5 minutes (close unused browsers)
  * - Track active contexts per browser
  * - Graceful shutdown on SIGTERM/SIGINT
@@ -90,7 +90,7 @@ interface BrowserEntry {
 class BrowserPool {
   private browsers: Map<string, BrowserEntry> = new Map();
   private config: BrowserPoolConfig = {
-    maxBrowsers: 3,
+    maxBrowsers: 1,  // Reduced from 3 to save RAM - jobs run sequentially anyway
     maxContextsPerBrowser: 10,
     browserIdleTimeoutMs: 5 * 60 * 1000, // 5 minutes
   };
@@ -1533,9 +1533,16 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         return { success: true, screenshotPath: options.outputPath };
       }
 
-      // Element not found - return failure to trigger FlareSolverr fallback
-      console.log(`[ElementScreenshot] Element not found, returning failure for FlareSolverr fallback`);
-      return { success: false, error: `Selector not found: ${options.selector}` };
+      // Element not found - fallback to viewport screenshot instead of failing
+      console.log(`[ElementScreenshot] Element not found, falling back to viewport screenshot`);
+      await page.screenshot({
+        path: options.outputPath,
+        type,
+        quality,
+        fullPage: false,  // Just viewport, not full page (saves RAM and file size)
+      });
+      console.log(`[ElementScreenshot] Captured viewport fallback: ${options.outputPath}`);
+      return { success: true, screenshotPath: options.outputPath };
 
     } catch (error) {
       const err = error as Error;
