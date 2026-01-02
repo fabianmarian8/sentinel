@@ -7,6 +7,18 @@ import { HealthBadge } from '@/components/HealthBadge';
 import api, { Rule, TestRuleResult } from '@/lib/api';
 import { getErrorInfo } from '@sentinel/shared';
 
+// Extract domain from URL for display (e.g., "www.walmart.com")
+function formatUrlForDisplay(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch {
+    // Fallback: try to extract domain manually
+    const match = url.match(/^(?:https?:\/\/)?([^\/\?#]+)/i);
+    return match ? match[1] : url;
+  }
+}
+
 export default function RuleDetailClient() {
   const params = useParams();
   const router = useRouter();
@@ -261,14 +273,15 @@ export default function RuleDetailClient() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-neutral-500 dark:text-neutral-400 break-all">
+              <p className="mt-1 text-neutral-500 dark:text-neutral-400">
                 <a
                   href={rule.source.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-primary-600 hover:underline"
+                  title={rule.source.url}
                 >
-                  {rule.source.url}
+                  {formatUrlForDisplay(rule.source.url)}
                 </a>
               </p>
               <div className="mt-4 flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
