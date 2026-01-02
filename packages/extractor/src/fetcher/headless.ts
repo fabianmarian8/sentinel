@@ -569,9 +569,15 @@ const COOKIE_BANNER_SELECTORS = [
   '[data-gdpr="accept"]',
 
   // === Major retailers ===
-  // Alza
+  // Alza - cookie consent
   '[data-testid="cookies-accept-all"]',
   '.cookies-consent__button--accept',
+  // Alza - "Máte IČO?" B2B promo popup (not cookie consent!)
+  'button[data-testid="b2b-modal-close"]',
+  'button[data-testid="b2b-popup-close"]',
+  '.alza-b2b-popup button',
+  '[class*="b2b"][class*="popup"] button',
+  '[class*="b2b"][class*="modal"] button',
   // Nike
   '[data-testid="modal-accept-button"]',
   '.modal-actions-accept-btn',
@@ -672,6 +678,14 @@ const COOKIE_BANNER_CONTAINERS = [
   '.cookies-bar',
   '.ochrana-osobnych-udajov',
   '[class*="ochrana"]',
+
+  // === B2B / Business promo popups (not cookie consent) ===
+  '[class*="b2b"][class*="popup"]',
+  '[class*="b2b"][class*="modal"]',
+  '[class*="business"][class*="popup"]',
+  '.alza-b2b-popup',
+  '[data-testid*="b2b-modal"]',
+  '[data-testid*="b2b-popup"]',
 
   // === Nike/major brands ===
   '[data-testid="privacy-modal"]',
@@ -839,6 +853,38 @@ async function removeCookieBanners(page: Page): Promise<{ clicked: boolean; remo
         }
       } catch {
         // Selector not found, continue
+      }
+    }
+
+    // Layer 1.5: Try clicking by text content (for popups without stable selectors)
+    if (!clicked) {
+      const dismissTexts = [
+        'Rozumiem',      // Slovak "I understand" (Alza B2B popup)
+        'Odmietnuť všetko', // Slovak "Reject all"
+        'Odmietnuť',     // Slovak "Reject"
+        'Zavrieť',       // Slovak "Close"
+        'Súhlasím',      // Slovak "I agree"
+        'Prijať',        // Slovak "Accept"
+        'Prijať všetko', // Slovak "Accept all"
+        'OK',
+        'Close',
+        'Dismiss',
+        'Schließen',     // German "Close"
+      ];
+
+      for (const text of dismissTexts) {
+        try {
+          const btn = page.getByRole('button', { name: text, exact: false });
+          if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
+            await btn.click({ timeout: 2000 });
+            console.log(`[CookieBanner] Clicked button by text: "${text}"`);
+            clicked = true;
+            await page.waitForTimeout(500);
+            break;
+          }
+        } catch {
+          // Button not found or not visible, continue
+        }
       }
     }
 
@@ -1012,13 +1058,19 @@ async function validateScreenshot(page: Page, targetSelector?: string): Promise<
           // Get element at center point of target
           const elementAtPoint = document.elementFromPoint(centerX, centerY);
           if (elementAtPoint && !target.contains(elementAtPoint) && elementAtPoint !== target) {
-            // Check if blocking element is an overlay/modal
+            // Check if blocking element is an overlay/modal/popup
             const blockingClasses = elementAtPoint.className?.toLowerCase() || '';
+            const blockingId = elementAtPoint.id?.toLowerCase() || '';
             const isOverlay = blockingClasses.includes('overlay') ||
                              blockingClasses.includes('modal') ||
                              blockingClasses.includes('cookie') ||
                              blockingClasses.includes('consent') ||
-                             blockingClasses.includes('backdrop');
+                             blockingClasses.includes('backdrop') ||
+                             blockingClasses.includes('popup') ||
+                             blockingClasses.includes('b2b') ||
+                             blockingClasses.includes('promo') ||
+                             blockingId.includes('modal') ||
+                             blockingId.includes('popup');
 
             if (isOverlay) {
               contentBlocked = true;
