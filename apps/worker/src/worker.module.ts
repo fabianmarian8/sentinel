@@ -9,7 +9,6 @@ import { ConditionEvaluatorService } from './services/condition-evaluator.servic
 import { AlertGeneratorService } from './services/alert-generator.service';
 import { RateLimiterService } from './services/rate-limiter.service';
 import { HealthScoreService } from './services/health-score.service';
-import { LlmExtractionService } from './services/llm-extraction.service';
 import { TwoCaptchaService } from './services/twocaptcha.service';
 import { BrightDataService } from './services/brightdata.service';
 import { TieredFetchService } from './services/tiered-fetch.service';
@@ -76,7 +75,6 @@ import { QUEUE_NAMES } from './types/jobs';
     AlertGeneratorService,
     RateLimiterService,
     HealthScoreService,
-    LlmExtractionService,
     TwoCaptchaService,
     BrightDataService,
     TieredFetchService,

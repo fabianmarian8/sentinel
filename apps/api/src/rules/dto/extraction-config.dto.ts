@@ -2,6 +2,7 @@ import {
   IsString,
   IsOptional,
   IsEnum,
+  IsIn,
   IsObject,
   IsArray,
   ValidateNested,
@@ -12,8 +13,8 @@ import { Type } from 'class-transformer';
 export enum ExtractionMethod {
   CSS_SELECTOR = 'css',
   XPATH = 'xpath',
-  JSON_PATH = 'jsonpath',
   REGEX = 'regex',
+  // Note: JSON_PATH removed - not implemented, blocked at validation level
 }
 
 export enum PostProcessType {
@@ -48,7 +49,9 @@ export class ExtractionConfigDto {
     enum: ExtractionMethod,
     example: ExtractionMethod.CSS_SELECTOR,
   })
-  @IsEnum(ExtractionMethod)
+  @IsIn(['css', 'xpath', 'regex'], {
+    message: 'Method must be css, xpath, or regex. JSONPath not yet supported.'
+  })
   method!: ExtractionMethod;
 
   @ApiProperty({

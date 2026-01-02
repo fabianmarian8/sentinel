@@ -13,7 +13,6 @@ import { ConditionEvaluatorService } from '../services/condition-evaluator.servi
 import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
-import { LlmExtractionService } from '../services/llm-extraction.service';
 import { TieredFetchService } from '../services/tiered-fetch.service';
 import { smartFetch, extract, processAntiFlap } from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
@@ -55,7 +54,6 @@ export class RunProcessor extends WorkerHost {
     private alertGenerator: AlertGeneratorService,
     private rateLimiter: RateLimiterService,
     private healthScore: HealthScoreService,
-    private llmExtraction: LlmExtractionService,
     private tieredFetch: TieredFetchService,
   ) {
     super();
@@ -456,67 +454,6 @@ export class RunProcessor extends WorkerHost {
         }
       }
 
-      // LLM FALLBACK: If CSS extraction failed (including auto-healing), try LLM for price rules
-      let llmUsed = false;
-      if (!extractResult.success && rule.ruleType === 'price') {
-        this.logger.log(
-          `[Job ${job.id}] CSS extraction failed, trying LLM fallback for ${rule.source.url}`,
-        );
-
-        try {
-          // Detect if page is blocked by CAPTCHA (small HTML with protection patterns)
-          // Note: fetchHtml may already be updated by TieredFetch above
-          const llmHtmlSize = fetchHtml.length;
-          const llmHtmlLower = fetchHtml.toLowerCase();
-          const isDataDomeBlocked = llmHtmlSize < 5000 && (
-            llmHtmlLower.includes('datadome') ||
-            llmHtmlLower.includes('captcha-delivery.com') ||
-            llmHtmlLower.includes('dd.js') ||
-            llmHtmlLower.includes('geo.captcha')
-          );
-
-          let llmResult;
-          if (isDataDomeBlocked) {
-            // Use alternative fetch for DataDome blocked pages (mobile UA)
-            this.logger.log(
-              `[Job ${job.id}] DataDome detected (${llmHtmlSize} bytes), trying mobile UA fetch`,
-            );
-            llmResult = await this.llmExtraction.extractWithAlternativeFetch({
-              url: rule.source.url,
-              ruleType: 'price',
-            });
-          } else {
-            // Use HTML extraction for normal pages
-            llmResult = await this.llmExtraction.extractWithLlm({
-              url: rule.source.url,
-              ruleType: 'price',
-              html: fetchHtml,
-            });
-          }
-
-          if (llmResult.success && llmResult.price) {
-            extractResult = {
-              success: true,
-              value: llmResult.price,
-              error: undefined,
-              fallbackUsed: true,
-              selectorUsed: llmResult.method === 'websearch' ? 'LLM_WEBSEARCH' : 'LLM_FALLBACK',
-            };
-            llmUsed = true;
-            this.logger.log(
-              `[Job ${job.id}] LLM extracted price: ${llmResult.price} (method: ${llmResult.method}, confidence: ${llmResult.confidence})`,
-            );
-          } else {
-            this.logger.warn(
-              `[Job ${job.id}] LLM extraction also failed: ${llmResult.error}`,
-            );
-          }
-        } catch (llmError) {
-          const llmErr = llmError as Error;
-          this.logger.error(`[Job ${job.id}] LLM fallback error: ${llmErr.message}`);
-        }
-      }
-
       if (!extractResult.success) {
         await this.prisma.run.update({
           where: { id: run.id },
@@ -536,15 +473,6 @@ export class RunProcessor extends WorkerHost {
           `[Job ${job.id}] Extraction failed: ${extractResult.error}`,
         );
         return { success: false, error: 'Extraction failed' };
-      }
-
-      // If LLM was used successfully, update health score with LLM fallback indicator
-      if (llmUsed) {
-        await this.healthScore.updateHealthScore({
-          ruleId,
-          errorCode: null,
-          usedFallback: true,
-        });
       }
 
       // If healed, update health score with fallback indicator

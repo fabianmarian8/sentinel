@@ -72,9 +72,7 @@ function extractWithMethod(
       // Regex doesn't support attribute or context
       return extractWithRegex(html, selector);
 
-    case 'jsonpath':
-      // JSONPath not implemented yet
-      throw new Error('JSONPath extraction not implemented');
+    // jsonpath removed - blocked at API validation level
 
     default:
       return null;

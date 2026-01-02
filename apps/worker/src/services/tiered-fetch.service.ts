@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TwoCaptchaService } from './twocaptcha.service';
 import { BrightDataService } from './brightdata.service';
 import { smartFetch, type SmartFetchOptions } from '@sentinel/extractor';
+import { CircuitBreaker } from './circuit-breaker';
 
 /**
  * Tiered Fetch Service
@@ -74,6 +75,21 @@ export class TieredFetchService {
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
   ];
+
+  // Circuit breakers for paid services
+  private readonly brightDataCircuit = new CircuitBreaker({
+    name: 'BrightData',
+    failureThreshold: 3,
+    successThreshold: 1,
+    cooldownMs: 5 * 60 * 1000, // 5 minutes
+  });
+
+  private readonly twoCaptchaCircuit = new CircuitBreaker({
+    name: '2captcha',
+    failureThreshold: 3,
+    successThreshold: 1,
+    cooldownMs: 5 * 60 * 1000, // 5 minutes
+  });
 
   constructor(
     private readonly twoCaptcha: TwoCaptchaService,
@@ -193,11 +209,12 @@ export class TieredFetchService {
     this.logger.log(`[Tier 2] Attempting PAID options for ${url}`);
 
     // Step 3: Try Bright Data first (more reliable for DataDome)
-    if (hasBrightData) {
+    if (hasBrightData && this.brightDataCircuit.canExecute()) {
       this.logger.debug(`[Tier 2.1] Trying Bright Data Web Unlocker`);
       const brightResult = await this.brightData.fetchWithDataDomeBypass(url);
 
       if (brightResult.success && !this.isBlocked(brightResult.html || '')) {
+        this.brightDataCircuit.recordSuccess();
         this.logger.log(
           `[Tier 2] Success via Bright Data (~$${brightResult.cost?.toFixed(4) || '0'})`,
         );
@@ -213,8 +230,14 @@ export class TieredFetchService {
         };
       }
 
+      this.brightDataCircuit.recordFailure();
       this.logger.warn(
         `[Tier 2.1] Bright Data failed: ${brightResult.error || 'Unknown'}`,
+      );
+    } else if (hasBrightData) {
+      const stats = this.brightDataCircuit.getStats();
+      this.logger.warn(
+        `[Tier 2.1] Bright Data circuit ${stats.state}, skipping (cooldown: ${Math.ceil(stats.cooldownRemaining / 1000)}s)`,
       );
     }
 
@@ -233,6 +256,22 @@ export class TieredFetchService {
     }
 
     // Step 5: Try 2captcha proxy (fallback)
+    if (!this.twoCaptchaCircuit.canExecute()) {
+      const stats = this.twoCaptchaCircuit.getStats();
+      this.logger.warn(
+        `[Tier 2.2] 2captcha circuit ${stats.state}, cannot execute (cooldown: ${Math.ceil(stats.cooldownRemaining / 1000)}s)`,
+      );
+      return {
+        success: false,
+        error: '2captcha circuit breaker open',
+        errorCode: 'CIRCUIT_BREAKER_OPEN',
+        tierUsed: 'paid',
+        methodUsed: 'proxy',
+        paidServiceUsed: false,
+        timings: { totalMs: Date.now() - startTime },
+      };
+    }
+
     this.logger.debug(`[Tier 2.2] Trying 2captcha residential proxy`);
     const proxyResult = await this.twoCaptcha.fetchWithProxy({
       url,
@@ -242,6 +281,7 @@ export class TieredFetchService {
     });
 
     if (proxyResult.success && !this.isBlocked(proxyResult.html || '')) {
+      this.twoCaptchaCircuit.recordSuccess();
       this.logger.log(
         `[Tier 2] Success via 2captcha proxy (~$${proxyResult.cost?.toFixed(6) || '0'})`,
       );
@@ -256,6 +296,8 @@ export class TieredFetchService {
         timings: { totalMs: Date.now() - startTime },
       };
     }
+
+    this.twoCaptchaCircuit.recordFailure();
 
     // Step 6: If still blocked by DataDome, use 2captcha DataDome bypass
     const lastHtml = proxyResult.html || '';

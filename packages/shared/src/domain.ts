@@ -5,14 +5,28 @@ export type WorkspaceType = "ecommerce" | "competitor" | "procurement";
 export type RuleType = "price" | "availability" | "text" | "number" | "json_field";
 export type FetchMode = "http" | "headless" | "flaresolverr";
 
+/**
+ * Error codes for Sentinel run failures
+ *
+ * Categories:
+ * - FETCH_*: Network/HTTP errors
+ * - BLOCK_*: Bot detection/blocking
+ * - EXTRACT_*: Selector/parsing errors
+ * - SYSTEM_*: Internal errors
+ *
+ * @deprecated Legacy codes (without prefix) will be removed in v2.0
+ * Use prefixed versions: BLOCK_CAPTCHA_SUSPECTED instead of CAPTCHA_BLOCK
+ */
 export type ErrorCode =
   // Fetch errors
   | "FETCH_TIMEOUT" | "FETCH_DNS" | "FETCH_CONNECTION" | "FETCH_TLS" | "FETCH_HTTP_4XX" | "FETCH_HTTP_5XX"
-  // Block detection
+  // Block detection (preferred)
   | "BLOCK_CAPTCHA_SUSPECTED" | "BLOCK_CLOUDFLARE_SUSPECTED" | "BLOCK_FORBIDDEN_403" | "BLOCK_RATE_LIMIT_429"
+  // Block detection (legacy - deprecated)
   | "CAPTCHA_BLOCK" | "CLOUDFLARE_BLOCK" | "RATELIMIT_BLOCK" | "GEO_BLOCK" | "BOT_DETECTION"
   // Extraction errors
   | "EXTRACT_SELECTOR_NOT_FOUND" | "EXTRACT_EMPTY_VALUE" | "EXTRACT_PARSE_ERROR" | "EXTRACT_UNSTABLE"
+  // Extraction (legacy - deprecated)
   | "SELECTOR_BROKEN" | "SELECTOR_HEALED" | "JSON_PATH_BROKEN" | "PARSE_ERROR"
   // System errors
   | "SYSTEM_WORKER_CRASH" | "SYSTEM_QUEUE_DELAY"
@@ -29,10 +43,11 @@ export type PostprocessOp =
   | { op: "replace"; from: string; to: string }
   | { op: "regex_extract"; pattern: string; group: number };
 
-export type SelectorMethod = "css" | "xpath" | "regex" | "jsonpath";
+export type SelectorMethod = "css" | "xpath" | "regex";
+// Note: jsonpath removed - not implemented, blocked at API level
 
 export interface FallbackSelector {
-  method: Exclude<SelectorMethod, "regex" | "jsonpath">;
+  method: Exclude<SelectorMethod, "regex">;
   selector: string;
 }
 

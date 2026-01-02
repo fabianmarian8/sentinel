@@ -42,7 +42,7 @@ export interface Source {
 }
 
 export interface ExtractionConfig {
-  method: 'css' | 'xpath' | 'regex' | 'jsonpath';
+  method: 'css' | 'xpath' | 'regex';
   selector: string;
   attribute?: string;
 }
