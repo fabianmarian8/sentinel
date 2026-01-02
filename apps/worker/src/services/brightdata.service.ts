@@ -102,7 +102,14 @@ export class BrightDataService {
       const elapsed = Date.now() - startTime;
 
       // Debug: Log response details
-      this.logger.debug(`[BrightData] Response status: ${response.status}, headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+      const headersObj = Object.fromEntries(response.headers.entries());
+      this.logger.debug(`[BrightData] Response status: ${response.status}, headers: ${JSON.stringify(headersObj)}`);
+
+      // Check for DataDome protection in headers (indicates CAPTCHA page returned)
+      const xDatadome = response.headers.get('x-datadome');
+      if (xDatadome === 'protected') {
+        this.logger.warn(`[BrightData] x-datadome: protected header detected - CAPTCHA page likely returned`);
+      }
 
       // Check for API errors
       if (!response.ok) {
@@ -168,14 +175,17 @@ export class BrightDataService {
         };
       }
 
-      // Check if response is still blocked (shouldn't happen with Web Unlocker but safety check)
-      if (html.length < 5000 && this.isBlocked(html)) {
-        this.logger.warn(`[BrightData] Response appears blocked: ${html.substring(0, 200)}`);
+      // Check if response is still blocked (CAPTCHA page returned instead of actual content)
+      // Check both small pages (traditional blocks) and CAPTCHA indicators in any size page
+      const blockResult = this.isBlocked(html, xDatadome === 'protected');
+      if (blockResult.blocked) {
+        this.logger.warn(`[BrightData] Response appears blocked (${blockResult.reason}): ${html.substring(0, 300).replace(/\n/g, ' ')}`);
         return {
           success: false,
           html,
-          error: 'BRIGHTDATA_STILL_BLOCKED: Protection not bypassed',
+          error: `BRIGHTDATA_STILL_BLOCKED: ${blockResult.reason}`,
           httpStatus: response.status,
+          cost, // Still costs money even if blocked
         };
       }
 
@@ -218,21 +228,68 @@ export class BrightDataService {
   /**
    * Check if HTML indicates content is blocked (DataDome, Cloudflare, etc.)
    * Used to verify if bypass was successful
+   *
+   * @param html - The HTML content to check
+   * @param hasDataDomeHeader - Whether x-datadome: protected header was present
+   * @returns Object with blocked status and reason
    */
-  isBlocked(html: string): boolean {
-    if (!html || html.length < 3000) {
-      const htmlLower = html.toLowerCase();
-      return (
-        htmlLower.includes('datadome') ||
-        htmlLower.includes('captcha') ||
-        htmlLower.includes('cloudflare') ||
-        htmlLower.includes('access denied') ||
-        htmlLower.includes('blocked') ||
-        htmlLower.includes('captcha-delivery.com') ||
-        htmlLower.includes('checking your browser') ||
-        htmlLower.includes('ray id')
-      );
+  isBlocked(html: string, hasDataDomeHeader = false): { blocked: boolean; reason: string } {
+    if (!html) {
+      return { blocked: true, reason: 'Empty response' };
     }
-    return false;
+
+    const htmlLower = html.toLowerCase();
+
+    // CAPTCHA page patterns (check regardless of page size)
+    // These indicate the actual CAPTCHA challenge page was returned
+    const captchaPatterns = [
+      { pattern: 'nie s robotom', reason: 'DataDome CAPTCHA (Slovak)' },
+      { pattern: 'not a robot', reason: 'DataDome CAPTCHA (English)' },
+      { pattern: 'geo.captcha-delivery.com', reason: 'DataDome CAPTCHA delivery' },
+      { pattern: 'posunutím doprava zložte puzzle', reason: 'DataDome puzzle CAPTCHA' },
+      { pattern: 'slide to complete the puzzle', reason: 'DataDome puzzle CAPTCHA' },
+      { pattern: 'dd.datadome.', reason: 'DataDome script' },
+      { pattern: 'captcha-delivery.com/captcha', reason: 'DataDome CAPTCHA iframe' },
+    ];
+
+    for (const { pattern, reason } of captchaPatterns) {
+      if (htmlLower.includes(pattern)) {
+        return { blocked: true, reason };
+      }
+    }
+
+    // If x-datadome: protected header is present, check for thin content
+    // (real pages are usually much larger and have product-specific content)
+    if (hasDataDomeHeader) {
+      // Check if the page lacks typical product page indicators
+      const hasProductContent =
+        htmlLower.includes('add to cart') ||
+        htmlLower.includes('buy now') ||
+        htmlLower.includes('price') ||
+        htmlLower.includes('product');
+
+      if (!hasProductContent && html.length < 100000) {
+        return { blocked: true, reason: 'DataDome header + no product content' };
+      }
+    }
+
+    // Traditional block page patterns (only for small pages)
+    if (html.length < 5000) {
+      const blockPatterns = [
+        { pattern: 'access denied', reason: 'Access denied' },
+        { pattern: 'blocked', reason: 'Blocked message' },
+        { pattern: 'cloudflare', reason: 'Cloudflare challenge' },
+        { pattern: 'checking your browser', reason: 'Browser check' },
+        { pattern: 'ray id', reason: 'Cloudflare Ray ID' },
+      ];
+
+      for (const { pattern, reason } of blockPatterns) {
+        if (htmlLower.includes(pattern)) {
+          return { blocked: true, reason };
+        }
+      }
+    }
+
+    return { blocked: false, reason: '' };
   }
 }
