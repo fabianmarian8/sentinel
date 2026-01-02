@@ -199,10 +199,10 @@ export default function RuleDetailClient() {
 
   if (error || !rule) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4">😕</div>
-          <p className="text-gray-500 mb-4">{error || 'Pravidlo nenájdené'}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 mb-4">{error || 'Pravidlo nenájdené'}</p>
           <Link
             href="/dashboard"
             className="text-primary-600 hover:text-primary-700 font-medium"
@@ -215,21 +215,21 @@ export default function RuleDetailClient() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-900">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white dark:bg-neutral-800 shadow-sm border-b dark:border-neutral-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Link href="/" className="text-2xl font-bold text-primary-600">
                 Sentinel
               </Link>
-              <span className="ml-4 text-gray-400">/</span>
-              <Link href="/dashboard" className="ml-4 text-gray-600 hover:text-gray-900">
+              <span className="ml-4 text-neutral-400 dark:text-neutral-500">/</span>
+              <Link href="/dashboard" className="ml-4 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white">
                 Dashboard
               </Link>
-              <span className="ml-4 text-gray-400">/</span>
-              <span className="ml-4 text-gray-900 font-medium">{rule.name}</span>
+              <span className="ml-4 text-neutral-400 dark:text-neutral-500">/</span>
+              <span className="ml-4 text-neutral-900 dark:text-white font-medium">{rule.name}</span>
             </div>
           </div>
         </div>
@@ -237,18 +237,18 @@ export default function RuleDetailClient() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Rule Header */}
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+        <div className="bg-white dark:bg-neutral-800 rounded-lg shadow border border-neutral-200 dark:border-neutral-700 p-6 mb-6">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-gray-900">{rule.name}</h1>
+                <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">{rule.name}</h1>
                 {!rule.enabled && (
-                  <span className="px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded-full">
+                  <span className="px-3 py-1 text-sm bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 rounded-full">
                     Pozastavené
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-gray-500 break-all">
+              <p className="mt-1 text-neutral-500 dark:text-neutral-400 break-all">
                 <a
                   href={rule.source.url}
                   target="_blank"
@@ -258,12 +258,12 @@ export default function RuleDetailClient() {
                   {rule.source.url}
                 </a>
               </p>
-              <div className="mt-4 flex items-center gap-4 text-sm text-gray-500">
-                <span>Typ: <strong className="text-gray-700">{rule.ruleType}</strong></span>
+              <div className="mt-4 flex items-center gap-4 text-sm text-neutral-500 dark:text-neutral-400">
+                <span>Typ: <strong className="text-neutral-700 dark:text-neutral-200">{rule.ruleType}</strong></span>
                 <span>•</span>
-                <span>Vytvorené: <strong className="text-gray-700">{formatTimeAgo(rule.createdAt)}</strong></span>
+                <span>Vytvorené: <strong className="text-neutral-700 dark:text-neutral-200">{formatTimeAgo(rule.createdAt)}</strong></span>
                 <span>•</span>
-                <span>Ďalšia kontrola: <strong className="text-gray-700">{formatTimeAgo(rule.nextRunAt)}</strong></span>
+                <span>Ďalšia kontrola: <strong className="text-neutral-700 dark:text-neutral-200">{formatTimeAgo(rule.nextRunAt)}</strong></span>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -279,7 +279,7 @@ export default function RuleDetailClient() {
                 {rule.enabled ? (
                   <button
                     onClick={handlePause}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                    className="px-4 py-2 bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600"
                   >
                     Pozastaviť
                   </button>
@@ -332,38 +332,38 @@ export default function RuleDetailClient() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Current Value */}
-          <div className="lg:col-span-2 bg-white rounded-lg shadow border border-gray-200 p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Aktuálna hodnota</h2>
-            <div className="text-4xl font-bold text-gray-900">
+          <div className="lg:col-span-2 bg-white dark:bg-neutral-800 rounded-lg shadow border border-neutral-200 dark:border-neutral-700 p-6">
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-white mb-4">Aktuálna hodnota</h2>
+            <div className="text-4xl font-bold text-neutral-900 dark:text-white">
               {formatCurrentValue(rule.currentState?.lastStable)}
             </div>
-            <p className="mt-2 text-sm text-gray-500">
+            <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
               Naposledy aktualizované: {formatTimeAgo(rule.currentState?.updatedAt ?? null)}
             </p>
           </div>
 
           {/* Configuration */}
-          <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Konfigurácia</h2>
+          <div className="bg-white dark:bg-neutral-800 rounded-lg shadow border border-neutral-200 dark:border-neutral-700 p-6">
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-white mb-4">Konfigurácia</h2>
             <dl className="space-y-3 text-sm">
               <div>
-                <dt className="text-gray-500">Selektor</dt>
-                <dd className="font-mono text-xs bg-gray-100 p-2 rounded mt-1">
+                <dt className="text-neutral-500 dark:text-neutral-400">Selektor</dt>
+                <dd className="font-mono text-xs bg-neutral-100 dark:bg-neutral-700 dark:text-neutral-200 p-2 rounded mt-1">
                   {rule.extraction.selector}
                 </dd>
               </div>
               <div>
-                <dt className="text-gray-500">Metóda</dt>
-                <dd className="font-medium text-gray-900">{rule.extraction.method.toUpperCase()}</dd>
+                <dt className="text-neutral-500 dark:text-neutral-400">Metóda</dt>
+                <dd className="font-medium text-neutral-900 dark:text-white">{rule.extraction.method.toUpperCase()}</dd>
               </div>
               <div>
-                <dt className="text-gray-500">Interval kontroly</dt>
+                <dt className="text-neutral-500 dark:text-neutral-400">Interval kontroly</dt>
                 {isEditingInterval ? (
                   <div className="mt-1 flex items-center gap-2">
                     <select
                       value={newIntervalMinutes}
                       onChange={(e) => setNewIntervalMinutes(Number(e.target.value))}
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="px-2 py-1 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                     >
                       <option value={5}>5 min</option>
                       <option value={10}>10 min</option>
@@ -383,13 +383,13 @@ export default function RuleDetailClient() {
                     </button>
                     <button
                       onClick={() => setIsEditingInterval(false)}
-                      className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300"
+                      className="px-2 py-1 bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-200 text-xs rounded hover:bg-neutral-300 dark:hover:bg-neutral-500"
                     >
                       Zrušiť
                     </button>
                   </div>
                 ) : (
-                  <dd className="font-medium text-gray-900 flex items-center gap-2">
+                  <dd className="font-medium text-neutral-900 dark:text-white flex items-center gap-2">
                     Každých {rule.schedule.intervalSeconds / 60} minút
                     <button
                       onClick={startEditingInterval}
@@ -399,9 +399,9 @@ export default function RuleDetailClient() {
                     </button>
                   </dd>
                 )}
-                <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded text-xs">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-amber-800">
+                    <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
                       <span>{rule.captchaIntervalEnforced ? '🔒' : '🔓'}</span>
                       <span className="font-medium">CAPTCHA obmedzenie</span>
                     </div>
@@ -416,7 +416,7 @@ export default function RuleDetailClient() {
                     </label>
                   </div>
                   {rule.captchaIntervalEnforced ? (
-                    <p className="mt-1 text-amber-600">
+                    <p className="mt-1 text-amber-600 dark:text-amber-400">
                       Stránka vyžaduje CAPTCHA. Interval bol automaticky zmenený na 1 deň pre úsporu nákladov.
                       {rule.originalSchedule?.intervalSeconds && (
                         <span className="block mt-0.5">
@@ -425,17 +425,17 @@ export default function RuleDetailClient() {
                       )}
                     </p>
                   ) : (
-                    <p className="mt-1 text-gray-500">
+                    <p className="mt-1 text-neutral-500 dark:text-neutral-400">
                       CAPTCHA obmedzenie je vypnuté. Normálny interval kontroly je aktívny.
                     </p>
                   )}
                 </div>
               </div>
-              <div className="pt-3 border-t border-gray-100">
+              <div className="pt-3 border-t border-neutral-100 dark:border-neutral-700">
                 <div className="flex items-center justify-between">
                   <div>
-                    <dt className="text-gray-500">Snímky obrazovky</dt>
-                    <dd className="text-xs text-gray-400 mt-0.5">Zachytiť pri zmene</dd>
+                    <dt className="text-neutral-500 dark:text-neutral-400">Snímky obrazovky</dt>
+                    <dd className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">Zachytiť pri zmene</dd>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -453,36 +453,36 @@ export default function RuleDetailClient() {
         </div>
 
         {/* Observation History */}
-        <div className="mt-6 bg-white rounded-lg shadow border border-gray-200 p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Posledné pozorovania</h2>
+        <div className="mt-6 bg-white dark:bg-neutral-800 rounded-lg shadow border border-neutral-200 dark:border-neutral-700 p-6">
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-white mb-4">Posledné pozorovania</h2>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-full divide-y divide-neutral-200 dark:divide-neutral-700">
               <thead>
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase">
                     Čas
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase">
                     Hodnota
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase">
                     Stav
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase">
                     Zmena
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase">
                     Snímka
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
                 {(rule.latestObservations || []).map((obs) => (
-                  <tr key={obs.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
+                  <tr key={obs.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700/50">
+                    <td className="px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100">
                       {formatTimeAgo(obs.createdAt)}
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                    <td className="px-4 py-3 text-sm font-medium text-neutral-900 dark:text-white">
                       {obs.extractedRaw}
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -514,11 +514,11 @@ export default function RuleDetailClient() {
                             {obs.changeKind}
                           </span>
                           {obs.diffSummary && (
-                            <p className="mt-1 text-xs text-gray-500">{obs.diffSummary}</p>
+                            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{obs.diffSummary}</p>
                           )}
                         </div>
                       ) : (
-                        <span className="text-gray-400">Bez zmeny</span>
+                        <span className="text-neutral-400 dark:text-neutral-500">Bez zmeny</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -530,7 +530,7 @@ export default function RuleDetailClient() {
                           <img
                             src={obs.run.screenshotPath}
                             alt="Snímka obrazovky"
-                            className="w-16 h-10 object-cover rounded border border-gray-200 hover:border-primary-500 transition-colors"
+                            className="w-16 h-10 object-cover rounded border border-neutral-200 dark:border-neutral-600 hover:border-primary-500 transition-colors"
                           />
                           <span className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded">
                             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -539,7 +539,7 @@ export default function RuleDetailClient() {
                           </span>
                         </button>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-neutral-300 dark:text-neutral-600">—</span>
                       )}
                     </td>
                   </tr>
@@ -594,13 +594,13 @@ export default function RuleDetailClient() {
           onClick={() => !isDeleting && setShowDeleteConfirm(false)}
         >
           <div
-            className="bg-white rounded-lg shadow-xl max-w-md w-full p-6"
+            className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-md w-full p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold text-gray-900 mb-2">
+            <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">
               Vymazať pravidlo?
             </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-neutral-600 dark:text-neutral-300 mb-4">
               Naozaj chcete vymazať pravidlo <strong>{rule.name}</strong>?
               Táto akcia je nevratná a vymaže všetky súvisiace pozorovania a alerty.
             </p>
@@ -608,7 +608,7 @@ export default function RuleDetailClient() {
               <button
                 onClick={() => setShowDeleteConfirm(false)}
                 disabled={isDeleting}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                className="px-4 py-2 bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 disabled:opacity-50"
               >
                 Zrušiť
               </button>
