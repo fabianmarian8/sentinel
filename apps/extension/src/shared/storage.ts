@@ -145,6 +145,7 @@ export interface PassiveRule {
   ruleType: 'price' | 'availability' | 'text' | 'number';
   enabled: boolean;
   createdAt: number;
+  captureIntervalSeconds: number;
 
   url: string;
   urlKey: string; // origin + pathname (ignores query/hash) for matching

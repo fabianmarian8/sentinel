@@ -15,7 +15,6 @@ import {
   apiRequest,
   StorageData,
   computeUrlKey,
-  type PassiveRule,
   createPassiveObservation,
   addPassiveObservationForUser,
   getPassiveRulesForUser,
@@ -36,6 +35,12 @@ const BADGE_COLOR_NORMAL = '#4f46e5'; // Indigo when logged in
 
 // Store alarm name
 const ALERT_POLL_ALARM = 'sentinel-alert-poll';
+const PASSIVE_CAPTURE_ALARM = 'sentinel-passive-capture';
+
+// Avoid spamming notifications (service worker memory only)
+const PASSIVE_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+const passiveLastNotified = new Map<string, number>(); // ruleId -> timestamp
+const passiveOpenTabForRule = new Map<number, string>(); // tabId -> ruleId
 
 // Fetch unread alerts count from API
 async function fetchUnreadAlertsCount(): Promise<number> {
@@ -131,6 +136,77 @@ function setupAlertPolling(): void {
   updateAlertBadge();
 }
 
+function setupPassiveCapturePolling(): void {
+  chrome.alarms.create(PASSIVE_CAPTURE_ALARM, {
+    periodInMinutes: 1, // Chrome minimum is 1 minute
+  });
+}
+
+async function runPassiveCaptureTick(): Promise<void> {
+  const { authToken, user } = await getStorageData();
+  if (!authToken || !user?.id) return;
+
+  const rules = (await getPassiveRulesForUser(user.id)).filter(r => r.enabled);
+  if (rules.length === 0) return;
+
+  const now = Date.now();
+
+  const { passiveObservationsByUser } = await chrome.storage.local.get(['passiveObservationsByUser']);
+  const observations: Array<{ ruleId: string; capturedAt: string }> =
+    passiveObservationsByUser?.[user.id] ?? [];
+
+  const lastByRule = new Map<string, number>();
+  for (const o of observations) {
+    if (lastByRule.has(o.ruleId)) continue;
+    const ms = new Date(o.capturedAt).getTime();
+    if (!Number.isFinite(ms)) continue;
+    lastByRule.set(o.ruleId, ms);
+  }
+
+  const tabs = await chrome.tabs.query({});
+  const urlKeyToTabIds = new Map<string, number[]>();
+  for (const tab of tabs) {
+    if (!tab.id || !tab.url) continue;
+    const key = computeUrlKey(tab.url);
+    if (!key) continue;
+    const list = urlKeyToTabIds.get(key) ?? [];
+    list.push(tab.id);
+    urlKeyToTabIds.set(key, list);
+  }
+
+  for (const rule of rules) {
+    const lastMs = lastByRule.get(rule.id) ?? 0;
+    const intervalMs = Math.max(60, rule.captureIntervalSeconds || 60) * 1000;
+    const due = lastMs === 0 || now - lastMs >= intervalMs;
+    if (!due) continue;
+
+    const tabIds = urlKeyToTabIds.get(rule.urlKey) ?? [];
+    if (tabIds.length > 0) {
+      for (const tabId of tabIds) {
+        try {
+          await chrome.tabs.sendMessage(tabId, { action: 'passiveCapture:runNow' });
+        } catch {
+          // ignore - content script may be unavailable
+        }
+      }
+      continue;
+    }
+
+    const lastNotifiedAt = passiveLastNotified.get(rule.id) ?? 0;
+    if (now - lastNotifiedAt < PASSIVE_NOTIFY_COOLDOWN_MS) continue;
+    passiveLastNotified.set(rule.id, now);
+
+    const notificationId = `sentinel-passive-open:${rule.id}`;
+    chrome.notifications.create(notificationId, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Sentinel Passive Capture',
+      message: `Click to open page and capture: ${rule.name}`,
+      requireInteraction: false,
+    });
+  }
+}
+
 // Badge Management for tab (deprecated - now using global badge)
 async function updateBadgeForTab(tabId: number): Promise<void> {
   // No-op - badge is now global, updated by alert polling
@@ -200,6 +276,7 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log('Sentinel extension installed');
   setupContextMenu();
   setupAlertPolling();
+  setupPassiveCapturePolling();
 });
 
 // Handle alarm for periodic polling
@@ -207,11 +284,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALERT_POLL_ALARM) {
     updateAlertBadge();
   }
+  if (alarm.name === PASSIVE_CAPTURE_ALARM) {
+    runPassiveCaptureTick().catch((e) => console.error('Passive capture tick failed:', e));
+  }
 });
 
 // Also check on service worker startup (in case it was terminated)
 chrome.runtime.onStartup.addListener(() => {
   setupAlertPolling();
+  setupPassiveCapturePolling();
 });
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -225,6 +306,12 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
     updateBadgeForTab(tabId);
+
+    const ruleId = passiveOpenTabForRule.get(tabId);
+    if (ruleId) {
+      passiveOpenTabForRule.delete(tabId);
+      chrome.tabs.sendMessage(tabId, { action: 'passiveCapture:runNow' }).catch(() => {});
+    }
   }
 });
 
@@ -277,6 +364,25 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
     setTimeout(() => {
       chrome.notifications.clear('click-icon-reminder');
     }, 5000);
+  }
+
+  if (notificationId.startsWith('sentinel-passive-open:')) {
+    const ruleId = notificationId.split(':')[1];
+    chrome.notifications.clear(notificationId);
+
+    try {
+      const { authToken, user } = await getStorageData();
+      if (!authToken || !user?.id) return;
+
+      const rules = await getPassiveRulesForUser(user.id);
+      const rule = rules.find(r => r.id === ruleId);
+      if (!rule) return;
+
+      const tab = await chrome.tabs.create({ url: rule.url, active: true });
+      if (tab.id) passiveOpenTabForRule.set(tab.id, ruleId);
+    } catch (e) {
+      console.error('Failed to open passive capture page:', e);
+    }
   }
 });
 
@@ -421,6 +527,13 @@ console.log('Sentinel background service worker started');
     // Always update badge on service worker startup
     await updateAlertBadge();
     console.log('Sentinel: Badge updated on startup');
+
+    const passiveAlarm = await chrome.alarms.get(PASSIVE_CAPTURE_ALARM);
+    if (!passiveAlarm) {
+      chrome.alarms.create(PASSIVE_CAPTURE_ALARM, {
+        periodInMinutes: 1,
+      });
+    }
   } catch (error) {
     console.error('Sentinel: Initialization error:', error);
   }

@@ -107,6 +107,7 @@ const ruleTypeSelect = document.getElementById('rule-type') as HTMLSelectElement
 const monitoringModeSelect = document.getElementById('monitoring-mode') as HTMLSelectElement;
 const workspaceSelect = document.getElementById('workspace-id') as HTMLSelectElement;
 const intervalSelect = document.getElementById('interval') as HTMLSelectElement;
+const intervalLabel = document.getElementById('interval-label') as HTMLLabelElement;
 
 const rulesList = document.getElementById('rules-list') as HTMLDivElement;
 const passiveRulesList = document.getElementById('passive-rules-list') as HTMLDivElement;
@@ -250,6 +251,7 @@ function displayPassiveRules(): void {
     const summary = computePassiveSummary(rule);
     const lastValue = summary.lastValue ? escapeHtml(summary.lastValue) : '<span class="text-muted">—</span>';
     const lastTime = summary.lastCapturedAt ? escapeHtml(formatTime(summary.lastCapturedAt)) : 'never';
+    const intervalMins = Math.max(1, Math.round((rule.captureIntervalSeconds || 60) / 60));
 
     return `
       <div class="rule-item ${rule.enabled ? '' : 'disabled'}" data-passive-rule-id="${escapeHtml(rule.id)}">
@@ -273,7 +275,7 @@ function displayPassiveRules(): void {
           <span class="text-muted text-small" style="margin-left: 8px;">${escapeHtml(String(summary.captureCount))} captures</span>
         </div>
         <div class="rule-status">
-          <span class="text-muted text-small">Last capture: ${lastTime}</span>
+          <span class="text-muted text-small">Every ~${escapeHtml(String(intervalMins))} min, last: ${lastTime}</span>
         </div>
       </div>
     `;
@@ -942,12 +944,13 @@ async function createRule(event: Event): Promise<void> {
         return;
       }
 
-      const passiveRule = createPassiveRule({
+  const passiveRule = createPassiveRule({
         userId: user.id,
         workspaceId,
         name: ruleName,
         ruleType: ruleType as any,
         enabled: true,
+        captureIntervalSeconds: Math.max(60, intervalSeconds || 3600),
         url: pendingElement.pageUrl,
         selector: pendingElement.selector,
         alternativeSelectors: pendingElement.fingerprint?.alternativeSelectors,
@@ -1209,7 +1212,11 @@ async function init(): Promise<void> {
   // Monitoring mode UI
   const updateMonitoringModeUi = () => {
     const mode = (monitoringModeSelect.value as MonitoringMode) || 'server';
-    intervalSelect.disabled = mode === 'passive';
+    if (mode === 'passive') {
+      intervalLabel.textContent = 'Capture max každých:';
+    } else {
+      intervalLabel.textContent = 'Kontrolovať každých:';
+    }
   };
   monitoringModeSelect.addEventListener('change', updateMonitoringModeUi);
   updateMonitoringModeUi();
