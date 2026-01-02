@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TwoCaptchaService } from './twocaptcha.service';
 import { BrightDataService } from './brightdata.service';
+import { ScrapingBrowserService } from './scraping-browser.service';
 import { smartFetch, type SmartFetchOptions } from '@sentinel/extractor';
 import { CircuitBreaker } from './circuit-breaker';
 
@@ -42,7 +43,8 @@ export interface TieredFetchResult {
     | 'flaresolverr'
     | 'proxy'
     | 'proxy_datadome'
-    | 'brightdata';
+    | 'brightdata'
+    | 'scraping_browser';
   paidServiceUsed: boolean;
   estimatedCost?: number;
 
@@ -77,6 +79,13 @@ export class TieredFetchService {
   ];
 
   // Circuit breakers for paid services
+  private readonly scrapingBrowserCircuit = new CircuitBreaker({
+    name: 'ScrapingBrowser',
+    failureThreshold: 2, // More conservative - expensive service
+    successThreshold: 1,
+    cooldownMs: 10 * 60 * 1000, // 10 minutes
+  });
+
   private readonly brightDataCircuit = new CircuitBreaker({
     name: 'BrightData',
     failureThreshold: 3,
@@ -94,6 +103,7 @@ export class TieredFetchService {
   constructor(
     private readonly twoCaptcha: TwoCaptchaService,
     private readonly brightData: BrightDataService,
+    private readonly scrapingBrowser: ScrapingBrowserService,
   ) {}
 
   /**
@@ -190,10 +200,11 @@ export class TieredFetchService {
       };
     }
 
+    const hasScrapingBrowser = this.scrapingBrowser.isAvailable();
     const hasBrightData = this.brightData.isAvailable();
     const hasTwoCaptcha = this.twoCaptcha.isAvailable();
 
-    if (!hasBrightData && !hasTwoCaptcha) {
+    if (!hasScrapingBrowser && !hasBrightData && !hasTwoCaptcha) {
       this.logger.warn(`[Tier 2] No paid services configured, returning failure`);
       return {
         success: false,
@@ -208,7 +219,41 @@ export class TieredFetchService {
 
     this.logger.log(`[Tier 2] Attempting PAID options for ${url}`);
 
-    // Step 3: Try Bright Data first (more reliable for DataDome)
+    // Step 3: Try Scraping Browser first (strongest for DataDome/CAPTCHA)
+    if (hasScrapingBrowser && this.scrapingBrowserCircuit.canExecute()) {
+      this.logger.debug(`[Tier 2.0] Trying Scraping Browser (CDP + CAPTCHA solver)`);
+      const browserResult = await this.scrapingBrowser.fetch(url);
+
+      if (browserResult.success && !this.isBlocked(browserResult.html || '')) {
+        this.scrapingBrowserCircuit.recordSuccess();
+        this.logger.log(
+          `[Tier 2] Success via Scraping Browser (~$${browserResult.cost?.toFixed(4) || '0'})` +
+          (browserResult.captchaSolved ? ' [CAPTCHA solved]' : ''),
+        );
+        return {
+          success: true,
+          html: browserResult.html,
+          httpStatus: browserResult.httpStatus,
+          tierUsed: 'paid',
+          methodUsed: 'scraping_browser',
+          paidServiceUsed: true,
+          estimatedCost: browserResult.cost,
+          timings: { totalMs: Date.now() - startTime },
+        };
+      }
+
+      this.scrapingBrowserCircuit.recordFailure();
+      this.logger.warn(
+        `[Tier 2.0] Scraping Browser failed: ${browserResult.error || 'Unknown'}`,
+      );
+    } else if (hasScrapingBrowser) {
+      const stats = this.scrapingBrowserCircuit.getStats();
+      this.logger.warn(
+        `[Tier 2.0] Scraping Browser circuit ${stats.state}, skipping (cooldown: ${Math.ceil(stats.cooldownRemaining / 1000)}s)`,
+      );
+    }
+
+    // Step 4: Try Bright Data Web Unlocker (fallback, simpler API)
     if (hasBrightData && this.brightDataCircuit.canExecute()) {
       this.logger.debug(`[Tier 2.1] Trying Bright Data Web Unlocker`);
       const brightResult = await this.brightData.fetchWithDataDomeBypass(url);
