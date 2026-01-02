@@ -450,10 +450,10 @@ function AddChannelModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
-          <h3 className="text-lg font-medium text-gray-900">Add Notification Channel</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+      <div className="bg-white dark:bg-neutral-800 rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700 flex justify-between items-center sticky top-0 bg-white dark:bg-neutral-800">
+          <h3 className="text-lg font-medium text-neutral-900 dark:text-white">Add Notification Channel</h3>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -469,7 +469,7 @@ function AddChannelModal({
 
           {/* Channel Type Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Select Channel Type</label>
+            <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-3">Select Channel Type</label>
             <div className="grid grid-cols-5 gap-2">
               {CHANNEL_TYPES.map((ct) => (
                 <button
@@ -481,8 +481,8 @@ function AddChannelModal({
                   }}
                   className={`p-3 rounded-lg border text-center transition-all ${
                     type === ct.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 ring-2 ring-primary-200'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 ring-2 ring-primary-200 dark:ring-primary-800'
+                      : 'border-neutral-200 dark:border-neutral-600 hover:border-neutral-300 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                   }`}
                 >
                   <div className="text-2xl mb-1">{ct.icon}</div>
@@ -490,36 +490,36 @@ function AddChannelModal({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-xs text-gray-500">
+            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
               {CHANNEL_TYPES.find(t => t.value === type)?.description}
             </p>
           </div>
 
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Channel Name (optional)</label>
+            <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Channel Name (optional)</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={`My ${CHANNEL_TYPES.find(t => t.value === type)?.label || ''} Alerts`}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
 
           {/* Email Configuration */}
           {type === 'email' && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-              <label className="block text-sm font-medium text-gray-700">Email Address</label>
+            <div className="space-y-3 p-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
+              <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">Email Address</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="alerts@example.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 You'll receive alerts at this email address via Resend.
               </p>
             </div>
@@ -527,7 +527,7 @@ function AddChannelModal({
 
           {/* Slack OAuth Configuration */}
           {type === 'slack_oauth' && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
+            <div className="space-y-3 p-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
               {slackStep === 'connect' && (
                 <>
                   <button
@@ -547,7 +547,7 @@ function AddChannelModal({
                       </>
                     )}
                   </button>
-                  <p className="text-xs text-gray-500 text-center">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 text-center">
                     Click to authorize Sentinel to post to your Slack workspace
                   </p>
                 </>
@@ -561,14 +561,14 @@ function AddChannelModal({
                     </svg>
                     Connected to {slackTeamName}
                   </div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Channel</label>
+                  <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Select Channel</label>
                   <select
                     value={selectedSlackChannel?.id || ''}
                     onChange={(e) => {
                       const channel = slackChannels.find(c => c.id === e.target.value);
                       setSelectedSlackChannel(channel || null);
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                   >
                     <option value="">Select a channel...</option>
                     {slackChannels.map((channel) => (
@@ -584,17 +584,17 @@ function AddChannelModal({
 
           {/* Discord Configuration */}
           {type === 'discord' && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-              <label className="block text-sm font-medium text-gray-700">Discord Webhook URL</label>
+            <div className="space-y-3 p-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
+              <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">Discord Webhook URL</label>
               <input
                 type="url"
                 value={discordWebhookUrl}
                 onChange={(e) => setDiscordWebhookUrl(e.target.value)}
                 placeholder="https://discord.com/api/webhooks/..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 In Discord: Server Settings → Integrations → Webhooks → Create Webhook → Copy URL
               </p>
             </div>
@@ -602,7 +602,7 @@ function AddChannelModal({
 
           {/* Push Configuration */}
           {type === 'push' && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
+            <div className="space-y-3 p-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
               {!pushEnabled ? (
                 <>
                   <button
@@ -615,12 +615,12 @@ function AddChannelModal({
                     </svg>
                     <span className="font-medium">Enable Push Notifications</span>
                   </button>
-                  <p className="text-xs text-gray-500 text-center">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 text-center">
                     Your browser will ask for permission to send notifications
                   </p>
                 </>
               ) : (
-                <div className="flex items-center gap-2 text-sm text-green-600">
+                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
@@ -632,28 +632,28 @@ function AddChannelModal({
 
           {/* Webhook Configuration */}
           {type === 'webhook' && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
-              <label className="block text-sm font-medium text-gray-700">Webhook URL</label>
+            <div className="space-y-3 p-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-lg">
+              <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">Webhook URL</label>
               <input
                 type="url"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
                 placeholder="https://your-server.com/webhook"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-700 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 required
               />
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 We'll POST JSON data to this URL when alerts trigger
               </p>
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4 border-t">
+          <div className="flex justify-end space-x-3 pt-4 border-t border-neutral-200 dark:border-neutral-700">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:text-gray-900"
+              className="px-4 py-2 text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white"
             >
               Cancel
             </button>
