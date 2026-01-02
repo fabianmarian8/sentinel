@@ -1341,7 +1341,14 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         // Loop multiple times to handle stacked popups (e.g., cookie popup -> B2B popup)
         if (dismissCookies) {
           const dismissTexts = [
-            // Cookie consent texts
+            // English cookie consent (Etsy, international sites)
+            'Essential Cookies Only',  // Etsy - prefer this over Accept All
+            'Reject All',
+            'Decline',
+            'Accept All Cookies',
+            'Accept All',
+            'Accept',
+            // Slovak cookie consent
             'Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK', 'Súhlasím', 'Prijať',
             // Slovak B2B popup texts (Alza "Máte IČO?" etc.)
             'Som súkromná osoba',      // "I'm a private person"
