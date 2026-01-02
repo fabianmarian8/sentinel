@@ -1,4 +1,5 @@
 // @sentinel/extractor - Extraction and normalization engine
+export * from './config';
 export * from './fetcher';
 export * from './normalization';
 export * from './antiflap';

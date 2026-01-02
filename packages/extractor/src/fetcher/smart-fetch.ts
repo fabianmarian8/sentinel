@@ -59,13 +59,40 @@ export async function smartFetch(
   // If FlareSolverr is explicitly preferred
   if (preferredMode === 'flaresolverr') {
     logger.debug(`Using FlareSolverr (preferred) for ${options.url}`);
+
+    // Check if we need element-specific screenshot (selector provided)
+    const needsElementScreenshot = options.screenshotOnChange && options.screenshotSelector && options.screenshotPath;
+
     const result = await fetchFlareSolverr({
       ...options,
       flareSolverrUrl,
-      // Pass screenshot options to FlareSolverr
-      returnScreenshot: options.screenshotOnChange,
-      screenshotPath: options.screenshotPath,
+      // Only use FlareSolverr screenshot if we don't need element-specific screenshot
+      returnScreenshot: options.screenshotOnChange && !needsElementScreenshot,
+      screenshotPath: needsElementScreenshot ? undefined : options.screenshotPath,
     });
+
+    // If we need element screenshot, use headless with FlareSolverr's cookies
+    if (result.success && needsElementScreenshot && options.screenshotPath && options.screenshotSelector) {
+      logger.debug(`Taking element screenshot with padding for ${options.url}`);
+      const screenshotResult = await takeElementScreenshot({
+        url: options.url,
+        selector: options.screenshotSelector,
+        outputPath: options.screenshotPath,
+        padding: SCREENSHOT_PADDING_PX,
+        dismissCookies: true,
+        userAgent: result.headers?.['x-flaresolverr-user-agent'],
+        cookies: result.headers?.['x-flaresolverr-cookies'],
+        html: result.html || undefined,
+      });
+
+      return {
+        ...result,
+        screenshotPath: screenshotResult.success ? screenshotResult.screenshotPath || null : null,
+        modeUsed: 'flaresolverr',
+        fallbackTriggered: false,
+      };
+    }
+
     return {
       ...result,
       modeUsed: 'flaresolverr',

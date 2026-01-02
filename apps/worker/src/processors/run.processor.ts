@@ -14,7 +14,7 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { TieredFetchService } from '../services/tiered-fetch.service';
-import { smartFetch, extract, processAntiFlap, takeElementScreenshot } from '@sentinel/extractor';
+import { smartFetch, extract, processAntiFlap, takeElementScreenshot, SCREENSHOT_PADDING_PX } from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
 import type {
   ExtractionConfig,
@@ -680,7 +680,7 @@ export class RunProcessor extends WorkerHost {
             html: fetchHtml, // Use pre-fetched HTML from TieredFetch
             outputPath: screenshotPath,
             selector: screenshotSelector || 'body', // Use extraction selector or fallback to body
-            padding: 400, // ~10cm context around element
+            padding: SCREENSHOT_PADDING_PX, // 10x10cm context around element
             quality: 80,
           });
 
