@@ -14,7 +14,7 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { TieredFetchService } from '../services/tiered-fetch.service';
-import { smartFetch, extract, processAntiFlap } from '@sentinel/extractor';
+import { smartFetch, extract, processAntiFlap, takeFullPageScreenshot } from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
 import type {
   ExtractionConfig,
@@ -635,13 +635,16 @@ export class RunProcessor extends WorkerHost {
         usedFallback: actualFetchMode === 'headless',
       });
 
-      // Step 13: Upload screenshot if captured (always, not just on change)
+      // Step 13: Upload screenshot if captured
+      // NOTE: If TieredFetch was used (paidTierUsed), the smartFetch screenshot shows blocked page
+      // Don't upload blocked screenshots - better to have no screenshot than misleading one
       let uploadedScreenshotPath: string | null = null;
 
       this.logger.debug(
-        `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}`,
+        `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}, paidTierUsed=${paidTierUsed}`,
       );
-      if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath) {
+      if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath && !paidTierUsed) {
+        // Normal case: smartFetch captured screenshot successfully
         try {
           const storageClient = getStorageClientAuto();
           if (storageClient) {
@@ -663,6 +666,42 @@ export class RunProcessor extends WorkerHost {
         } catch (uploadError) {
           this.logger.warn(
             `[Job ${job.id}] Screenshot upload error: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`,
+          );
+        }
+      } else if (screenshotOnChange && screenshotPath && paidTierUsed && fetchHtml.length > 5000) {
+        // TieredFetch case: smartFetch screenshot was blocked, generate from TieredFetch HTML
+        this.logger.debug(
+          `[Job ${job.id}] TieredFetch succeeded, generating screenshot from HTML`,
+        );
+        try {
+          const screenshotResult = await takeFullPageScreenshot({
+            html: fetchHtml,
+            outputPath: screenshotPath,
+            quality: 80,
+          });
+
+          if (screenshotResult.success && screenshotResult.screenshotPath) {
+            const storageClient = getStorageClientAuto();
+            if (storageClient) {
+              const screenshotBuffer = await readFile(screenshotPath);
+              const uploadResult = await storageClient.uploadScreenshot(
+                ruleId,
+                run.id,
+                screenshotBuffer,
+              );
+              uploadedScreenshotPath = uploadResult.url;
+              this.logger.log(
+                `[Job ${job.id}] TieredFetch screenshot uploaded: ${uploadedScreenshotPath}`,
+              );
+            }
+          } else {
+            this.logger.warn(
+              `[Job ${job.id}] TieredFetch screenshot generation failed: ${screenshotResult.error}`,
+            );
+          }
+        } catch (screenshotError) {
+          this.logger.warn(
+            `[Job ${job.id}] TieredFetch screenshot error: ${screenshotError instanceof Error ? screenshotError.message : String(screenshotError)}`,
           );
         }
       }
