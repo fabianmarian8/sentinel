@@ -14,7 +14,17 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { TieredFetchService } from '../services/tiered-fetch.service';
-import { smartFetch, extract, processAntiFlap, takeElementScreenshot, SCREENSHOT_PADDING_PX } from '@sentinel/extractor';
+import {
+  smartFetch,
+  extract,
+  processAntiFlap,
+  takeElementScreenshot,
+  SCREENSHOT_PADDING_PX,
+  extractWithHealing,
+  createSelectorFingerprint,
+  type SelectorFingerprint,
+  type HealingResult,
+} from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
 import type {
   ExtractionConfig,
@@ -375,84 +385,116 @@ export class RunProcessor extends WorkerHost {
         }
       }
 
-      // Step 6: Extract value (use fetchHtml which may be from TieredFetch)
-      let extractResult = extract(fetchHtml, extraction);
-      let selectorHealed = false;
-      let healedSelector: string | null = null;
+      // Step 6: Extract value with auto-healing (use fetchHtml which may be from TieredFetch)
+      const storedFingerprint = rule.selectorFingerprint as SelectorFingerprint | null;
 
-      // Auto-healing: if extraction failed, try alternative selectors from fingerprint
-      if (!extractResult.success && rule.selectorFingerprint) {
-        const fingerprint = rule.selectorFingerprint as {
-          alternativeSelectors?: string[];
-          textAnchor?: string;
-        };
+      // Use new healing module for extraction with fallbacks and fingerprint matching
+      const healingResult = await extractWithHealing(fetchHtml, {
+        selector: extraction.selector,
+        method: extraction.method as 'css' | 'xpath',
+        attribute: extraction.attribute,
+        fallbackSelectors: [
+          // Include extraction fallbacks
+          ...(extraction.fallbackSelectors?.map((f: any) => f.selector) || []),
+          // Include fingerprint alternatives
+          ...(storedFingerprint?.alternativeSelectors || []),
+        ],
+        storedFingerprint: storedFingerprint || undefined,
+        similarityThreshold: 0.6,
+        textAnchor: storedFingerprint?.textAnchor,
+        generateFingerprint: true,
+      });
 
-        if (fingerprint.alternativeSelectors && fingerprint.alternativeSelectors.length > 0) {
+      // Convert healing result to extraction result format
+      const extractResult = {
+        success: healingResult.success,
+        value: healingResult.value,
+        selectorUsed: healingResult.selectorUsed,
+        fallbackUsed: healingResult.healed,
+        error: healingResult.error,
+      };
+      const selectorHealed = healingResult.healed;
+      const healedSelector = healingResult.healed ? healingResult.selectorUsed : null;
+
+      // Log healing method
+      if (healingResult.success) {
+        if (healingResult.healingMethod === 'fingerprint') {
           this.logger.log(
-            `[Job ${job.id}] Primary selector failed, trying ${fingerprint.alternativeSelectors.length} alternative selectors`,
+            `[Job ${job.id}] Auto-healed via fingerprint matching: ${healingResult.selectorUsed} (similarity: ${((healingResult.similarity || 0) * 100).toFixed(0)}%)`,
+          );
+        } else if (healingResult.healingMethod === 'fallback') {
+          this.logger.log(
+            `[Job ${job.id}] Auto-healed via fallback selector: ${healingResult.selectorUsed}`,
+          );
+        }
+      }
+
+      // If healed, update rule with new selector and fingerprint
+      if (selectorHealed && healedSelector) {
+        try {
+          const newExtraction = { ...extraction, selector: healedSelector };
+
+          // Generate updated fingerprint with healing history
+          const newFingerprint = createSelectorFingerprint(
+            fetchHtml,
+            healedSelector,
+            healingResult.value || '',
+            storedFingerprint || undefined,
           );
 
-          const primarySelector = extraction.selector || '';
-
-          for (const altSelector of fingerprint.alternativeSelectors) {
-            // Skip XPath selectors for now (start with xpath:)
-            if (altSelector.startsWith('xpath:')) continue;
-
-            // Similarity threshold validation (70%)
-            const similarity = this.calculateSelectorSimilarity(primarySelector, altSelector);
-            if (similarity < 0.70) {
-              this.logger.debug(
-                `[Job ${job.id}] Alternative selector ${altSelector} has low similarity (${(similarity * 100).toFixed(0)}%), skipping`,
-              );
-              continue;
-            }
-
-            const altConfig = { ...extraction, selector: altSelector };
-            const altResult = extract(fetchHtml, altConfig);
-
-            if (altResult.success) {
-              // Validate with textAnchor if available
-              if (fingerprint.textAnchor && altResult.value) {
-                const normalizedValue = altResult.value.toLowerCase().replace(/\s+/g, ' ').trim();
-                const normalizedAnchor = fingerprint.textAnchor.toLowerCase().replace(/\s+/g, ' ').trim().substring(0, 20);
-                if (!normalizedValue.includes(normalizedAnchor)) {
-                  this.logger.debug(
-                    `[Job ${job.id}] Alternative selector ${altSelector} found value but textAnchor mismatch, skipping`,
-                  );
-                  continue;
-                }
-              }
-
-              extractResult = altResult;
-              selectorHealed = true;
-              healedSelector = altSelector;
-
-              this.logger.log(
-                `[Job ${job.id}] Auto-healed! New selector: ${altSelector} (similarity: ${(similarity * 100).toFixed(0)}%)`,
-              );
-
-              // Update rule extraction config with new working selector
-              try {
-                const newExtraction = { ...extraction, selector: altSelector };
-                await this.prisma.rule.update({
-                  where: { id: ruleId },
-                  data: {
-                    extraction: newExtraction as any,
-                    lastErrorCode: null,
-                    lastErrorAt: null,
-                  },
-                });
-                this.logger.log(
-                  `[Job ${job.id}] Rule ${ruleId} extraction config auto-healed to: ${altSelector}`,
-                );
-              } catch (updateError) {
-                this.logger.warn(
-                  `[Job ${job.id}] Failed to persist auto-healed selector: ${updateError}`,
-                );
-              }
-              break;
-            }
+          // Add to healing history
+          if (!newFingerprint.healingHistory) {
+            newFingerprint.healingHistory = [];
           }
+          newFingerprint.healingHistory.push({
+            timestamp: new Date().toISOString(),
+            oldSelector: extraction.selector,
+            newSelector: healedSelector,
+            similarity: healingResult.similarity || 0,
+          });
+
+          await this.prisma.rule.update({
+            where: { id: ruleId },
+            data: {
+              extraction: newExtraction as any,
+              selectorFingerprint: newFingerprint as any,
+              lastErrorCode: null,
+              lastErrorAt: null,
+            },
+          });
+
+          this.logger.log(
+            `[Job ${job.id}] Rule ${ruleId} auto-healed: ${extraction.selector} → ${healedSelector}`,
+          );
+        } catch (updateError) {
+          this.logger.warn(
+            `[Job ${job.id}] Failed to persist auto-healed selector: ${updateError}`,
+          );
+        }
+      }
+
+      // On successful extraction, update fingerprint (even if not healed)
+      if (extractResult.success && !selectorHealed && healingResult.newFingerprint) {
+        try {
+          const updatedFingerprint = createSelectorFingerprint(
+            fetchHtml,
+            extraction.selector,
+            extractResult.value || '',
+            storedFingerprint || undefined,
+          );
+
+          await this.prisma.rule.update({
+            where: { id: ruleId },
+            data: {
+              selectorFingerprint: updatedFingerprint as any,
+            },
+          });
+
+          this.logger.debug(
+            `[Job ${job.id}] Updated selector fingerprint for rule ${ruleId}`,
+          );
+        } catch {
+          // Non-critical - don't fail the job
         }
       }
 

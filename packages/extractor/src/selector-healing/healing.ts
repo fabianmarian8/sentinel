@@ -1,0 +1,406 @@
+/**
+ * Selector Healing Logic
+ *
+ * Multi-strategy healing when CSS selectors break:
+ * 1. Try fallback selectors (fast)
+ * 2. Use fingerprint similarity matching (thorough)
+ * 3. Generate new selector from matched element
+ */
+
+import * as cheerio from 'cheerio';
+import {
+  HealingResult,
+  HealingOptions,
+  SelectorFingerprint,
+  ElementFingerprint,
+} from './types';
+import {
+  extractFingerprint,
+  generateAlternativeSelectors,
+  normalizeText,
+} from './fingerprint';
+import { calculateSimilarity } from './similarity';
+import { logger } from '../utils/logger';
+
+/**
+ * Extract value with automatic healing when selector fails
+ *
+ * Strategy:
+ * 1. Try primary selector
+ * 2. Try fallback selectors
+ * 3. Try fingerprint-based element matching
+ * 4. Generate new selector from matched element
+ */
+export async function extractWithHealing(
+  html: string,
+  options: HealingOptions
+): Promise<HealingResult> {
+  const {
+    selector,
+    attribute,
+    fallbackSelectors = [],
+    storedFingerprint,
+    similarityThreshold = 0.6,
+    textAnchor,
+    generateFingerprint = true,
+  } = options;
+
+  // Load HTML once
+  const $ = cheerio.load(html);
+
+  // Step 1: Try primary selector
+  const primaryResult = trySelector($, selector, attribute as any);
+  if (primaryResult.success && primaryResult.value) {
+    // Validate with text anchor if provided
+    if (textAnchor && !validateTextAnchor(primaryResult.value, textAnchor)) {
+      logger.debug(`Primary selector matched but text anchor validation failed`);
+    } else {
+      // Generate fingerprint for storage
+      const newFingerprint = generateFingerprint
+        ? extractFingerprintFromSelector($, selector)
+        : undefined;
+
+      return {
+        success: true,
+        value: primaryResult.value,
+        selectorUsed: selector,
+        healingMethod: 'primary',
+        healed: false,
+        newFingerprint,
+      };
+    }
+  }
+
+  logger.debug(`Primary selector failed: ${selector}`);
+
+  // Step 2: Try fallback selectors
+  for (const fallback of fallbackSelectors) {
+    // Skip XPath for now (starts with xpath:)
+    if (fallback.startsWith('xpath:')) continue;
+
+    const fallbackResult = trySelector($, fallback, attribute as any);
+    if (fallbackResult.success && fallbackResult.value) {
+      // Validate with text anchor if provided
+      if (textAnchor && !validateTextAnchor(fallbackResult.value, textAnchor)) {
+        logger.debug(`Fallback selector ${fallback} matched but text anchor validation failed`);
+        continue;
+      }
+
+      // Calculate similarity if we have stored fingerprint
+      let similarity = 0;
+      if (storedFingerprint?.elementFingerprint) {
+        const fallbackFingerprint = extractFingerprintFromSelector($, fallback);
+        if (fallbackFingerprint) {
+          similarity = calculateSimilarity(
+            storedFingerprint.elementFingerprint,
+            fallbackFingerprint
+          );
+        }
+      }
+
+      const newFingerprint = generateFingerprint
+        ? extractFingerprintFromSelector($, fallback)
+        : undefined;
+
+      logger.info(`Healed with fallback selector: ${fallback} (similarity: ${(similarity * 100).toFixed(0)}%)`);
+
+      return {
+        success: true,
+        value: fallbackResult.value,
+        selectorUsed: fallback,
+        healingMethod: 'fallback',
+        healed: true,
+        healedFrom: selector,
+        similarity,
+        newFingerprint,
+      };
+    }
+  }
+
+  logger.debug(`All ${fallbackSelectors.length} fallback selectors failed`);
+
+  // Step 3: Try fingerprint-based matching
+  if (storedFingerprint?.elementFingerprint) {
+    logger.debug(`Attempting fingerprint-based healing...`);
+
+    const fingerprintResult = await healWithFingerprint(
+      $,
+      storedFingerprint.elementFingerprint,
+      attribute as any,
+      similarityThreshold,
+      textAnchor
+    );
+
+    if (fingerprintResult.success && fingerprintResult.value) {
+      return {
+        success: true,
+        value: fingerprintResult.value,
+        selectorUsed: fingerprintResult.selector,
+        healingMethod: 'fingerprint',
+        healed: true,
+        healedFrom: selector,
+        similarity: fingerprintResult.similarity,
+        newFingerprint: fingerprintResult.fingerprint,
+      };
+    }
+  }
+
+  // All healing attempts failed
+  return {
+    success: false,
+    value: null,
+    selectorUsed: selector,
+    healed: false,
+    error: 'All selectors and healing strategies failed',
+  };
+}
+
+/**
+ * Try to extract value using a selector
+ */
+function trySelector(
+  $: cheerio.CheerioAPI,
+  selector: string,
+  attribute: 'text' | 'html' | 'value' | `attr:${string}`
+): { success: boolean; value: string | null } {
+  try {
+    const element = $(selector).first();
+    if (element.length === 0) {
+      return { success: false, value: null };
+    }
+
+    let value: string | null = null;
+
+    if (attribute === 'text') {
+      value = element.text();
+    } else if (attribute === 'html') {
+      value = element.html();
+    } else if (attribute === 'value') {
+      value = element.val() as string || null;
+    } else if (attribute.startsWith('attr:')) {
+      const attrName = attribute.slice(5);
+      value = element.attr(attrName) || null;
+    }
+
+    if (value && value.trim()) {
+      return { success: true, value: value.trim() };
+    }
+
+    return { success: false, value: null };
+  } catch {
+    return { success: false, value: null };
+  }
+}
+
+/**
+ * Extract fingerprint from element matched by selector
+ */
+function extractFingerprintFromSelector(
+  $: cheerio.CheerioAPI,
+  selector: string
+): ElementFingerprint | undefined {
+  try {
+    const element = $(selector).first();
+    if (element.length === 0) return undefined;
+    return extractFingerprint($, element);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Heal by finding similar element using fingerprint
+ */
+async function healWithFingerprint(
+  $: cheerio.CheerioAPI,
+  storedFingerprint: ElementFingerprint,
+  attribute: 'text' | 'html' | 'value' | `attr:${string}`,
+  threshold: number,
+  textAnchor?: string
+): Promise<{
+  success: boolean;
+  value: string | null;
+  selector: string;
+  similarity: number;
+  fingerprint?: ElementFingerprint;
+}> {
+  const tagName = storedFingerprint.tagName;
+
+  // Get all elements of the same tag
+  const candidates: {
+    element: cheerio.Cheerio<any>;
+    fingerprint: ElementFingerprint;
+    score: number;
+  }[] = [];
+
+  $(tagName).each((_, el) => {
+    try {
+      const element = $(el);
+      const fingerprint = extractFingerprint($, element);
+      const score = calculateSimilarity(storedFingerprint, fingerprint);
+
+      if (score >= threshold * 0.8) {
+        // Pre-filter with 80% of threshold
+        candidates.push({ element, fingerprint, score });
+      }
+    } catch {
+      // Skip invalid elements
+    }
+  });
+
+  // Sort by score descending
+  candidates.sort((a, b) => b.score - a.score);
+
+  logger.debug(`Found ${candidates.length} candidate elements above threshold`);
+
+  // Try top candidates
+  for (const candidate of candidates.slice(0, 5)) {
+    // Extract value
+    let value: string | null = null;
+    if (attribute === 'text') {
+      value = candidate.element.text();
+    } else if (attribute === 'html') {
+      value = candidate.element.html();
+    } else if (attribute === 'value') {
+      value = candidate.element.val() as string || null;
+    } else if (attribute.startsWith('attr:')) {
+      const attrName = attribute.slice(5);
+      value = candidate.element.attr(attrName) || null;
+    }
+
+    if (!value || !value.trim()) continue;
+
+    // Validate with text anchor
+    if (textAnchor && !validateTextAnchor(value, textAnchor)) {
+      logger.debug(`Candidate rejected: text anchor mismatch (score: ${(candidate.score * 100).toFixed(0)}%)`);
+      continue;
+    }
+
+    // Check if score meets threshold
+    if (candidate.score < threshold) continue;
+
+    // Generate a selector for this element
+    const newSelectors = generateAlternativeSelectors(candidate.fingerprint);
+    const validSelector = findValidSelector($, newSelectors, value.trim());
+
+    if (validSelector) {
+      logger.info(`Fingerprint healing found match: ${validSelector} (similarity: ${(candidate.score * 100).toFixed(0)}%)`);
+
+      return {
+        success: true,
+        value: value.trim(),
+        selector: validSelector,
+        similarity: candidate.score,
+        fingerprint: candidate.fingerprint,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    value: null,
+    selector: '',
+    similarity: 0,
+  };
+}
+
+/**
+ * Find a valid selector from alternatives that returns the expected value
+ */
+function findValidSelector(
+  $: cheerio.CheerioAPI,
+  selectors: string[],
+  expectedValue: string
+): string | null {
+  for (const selector of selectors) {
+    try {
+      const element = $(selector).first();
+      if (element.length === 0) continue;
+
+      const text = element.text()?.trim();
+      if (text === expectedValue) {
+        // Verify uniqueness (selector should match exactly 1 element with this value)
+        const allMatches = $(selector);
+        let matchCount = 0;
+        allMatches.each((_, el) => {
+          if ($(el).text()?.trim() === expectedValue) {
+            matchCount++;
+          }
+        });
+
+        if (matchCount === 1) {
+          return selector;
+        }
+      }
+    } catch {
+      // Invalid selector, skip
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Validate extracted value against text anchor
+ */
+function validateTextAnchor(value: string, anchor: string): boolean {
+  const normalizedValue = normalizeText(value);
+  const normalizedAnchor = normalizeText(anchor).slice(0, 20);
+
+  // Check if value contains the anchor (first 20 chars)
+  return normalizedValue.includes(normalizedAnchor);
+}
+
+/**
+ * Create or update selector fingerprint for a rule
+ */
+export function createSelectorFingerprint(
+  html: string,
+  selector: string,
+  extractedValue: string,
+  existingFingerprint?: SelectorFingerprint
+): SelectorFingerprint {
+  const $ = cheerio.load(html);
+  const element = $(selector).first();
+
+  if (element.length === 0) {
+    // Can't generate fingerprint if selector doesn't match
+    return existingFingerprint || {
+      selector,
+      alternativeSelectors: [],
+    };
+  }
+
+  // Extract element fingerprint
+  const elementFingerprint = extractFingerprint($, element);
+
+  // Generate alternative selectors
+  const alternativeSelectors = generateAlternativeSelectors(elementFingerprint);
+
+  // Create text anchor (first 50 chars of normalized value)
+  const textAnchor = extractedValue ? normalizeText(extractedValue).slice(0, 50) : undefined;
+
+  // Build parent context
+  const parentContext: { tag: string; classes: string[]; id?: string }[] = [];
+  if (elementFingerprint.parentTag) {
+    parentContext.push({
+      tag: elementFingerprint.parentTag,
+      classes: elementFingerprint.parentClasses,
+      id: elementFingerprint.parentId,
+    });
+  }
+
+  // Merge with existing healing history
+  const healingHistory = existingFingerprint?.healingHistory || [];
+
+  return {
+    selector,
+    alternativeSelectors,
+    textAnchor,
+    parentContext,
+    attributes: elementFingerprint.attributes,
+    elementFingerprint,
+    lastSuccessAt: new Date().toISOString(),
+    healingHistory,
+  };
+}

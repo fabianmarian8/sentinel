@@ -5,3 +5,4 @@ export * from './normalization';
 export * from './antiflap';
 export * from './extraction';
 export * from './change-detection';
+export * from './selector-healing';
