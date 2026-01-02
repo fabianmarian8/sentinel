@@ -218,12 +218,17 @@ PUPPETEER_TIMEOUT=30000
 PROXY_URL=
 ENCRYPTION_KEY=<32+ znakov, vygeneruj: openssl rand -hex 32>
 S3_BUCKET=sentinel-storage
-S3_ENDPOINT=https://storage.taxinearme.sk
+S3_ENDPOINT=http://localhost:9000
+S3_PUBLIC_URL=https://storage.taxinearme.sk/sentinel-storage
 S3_ACCESS_KEY_ID=<MinIO access key>
 S3_SECRET_ACCESS_KEY=<MinIO secret key>
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
 ```
+
+**Poznámka k S3:**
+- `S3_ENDPOINT` = interná URL pre S3 operácie (localhost:9000 pre MinIO)
+- `S3_PUBLIC_URL` = verejná URL pre browser (cez Cloudflare tunnel)
 
 ### Referenčná konfigurácia API .env
 
@@ -400,27 +405,61 @@ cloudflared tunnel info hetzner-server
 
 ### Screenshot URL ukazuje na localhost (nefunguje v browseri)
 
-**Príčina:** `S3_ENDPOINT` v worker .env je nastavený na `http://localhost:9000` namiesto verejnej URL.
+**Príčina:** Worker generuje screenshot URL z interného `S3_ENDPOINT` (localhost:9000), ale browser beží na klientovom PC a nemá prístup k serveru cez localhost.
 
 **Príznaky:**
 - V browseri "ERR_CONNECTION_REFUSED" pri otváraní screenshotu
-- URL obsahuje `localhost:9000`
+- URL obsahuje `localhost:9000` namiesto verejnej domény
+- V worker logoch: `Screenshot uploaded: http://localhost:9000/...`
+
+**Riešenie (odporúčané - cez S3_PUBLIC_URL):**
+
+Pridaj `S3_PUBLIC_URL` do worker .env:
+```bash
+# Pridaj novú premennú
+echo 'S3_PUBLIC_URL=https://storage.taxinearme.sk/sentinel-storage' >> /root/sentinel/apps/worker/.env
+
+# Reštartuj worker
+systemctl restart sentinel-worker
+```
+
+**Overenie:**
+```bash
+journalctl -u sentinel-worker -f | grep "Screenshot uploaded"
+# Mal by ukazovať: Screenshot uploaded: https://storage.taxinearme.sk/sentinel-storage/...
+```
+
+**Oprava existujúcich URL v databáze:**
+```bash
+docker exec n8n-postgres-1 psql -U n8n -d sentinel -c "
+UPDATE runs
+SET screenshot_path = REPLACE(screenshot_path, 'http://localhost:9000/sentinel-storage', 'https://storage.taxinearme.sk/sentinel-storage')
+WHERE screenshot_path LIKE '%localhost:9000%';
+"
+```
+
+**Technické pozadie:**
+- `S3_ENDPOINT` = interná URL pre S3 API operácie (upload/download)
+- `S3_PUBLIC_URL` = verejná URL pre prístup z browsera cez Cloudflare tunnel
+- Cloudflare tunnel smeruje `storage.taxinearme.sk` → `localhost:9000`
+
+---
+
+### Screenshot sa nezobrazuje (zlý Content-Type)
+
+**Príčina:** Storage klient uploadoval JPEG súbory s PNG content-type/extension.
+
+**Príznaky:**
+- Screenshot sa zobrazuje ako "broken image"
+- Browser ukazuje chybu pri dekódovaní obrázka
+- V S3/MinIO: súbor má príponu `.png` ale obsahuje JPEG dáta
 
 **Riešenie:**
-1. Oprav S3_ENDPOINT v worker .env:
-   ```bash
-   sed -i 's|S3_ENDPOINT=http://localhost:9000|S3_ENDPOINT=https://storage.taxinearme.sk|' /root/sentinel/apps/worker/.env
-   systemctl restart sentinel-worker
-   ```
+Opravené v commit `551e4e0` (2. január 2026):
+- `packages/storage/src/client.ts` - zmenené na `.jpg` a `image/jpeg`
+- `packages/storage/src/supabase-client.ts` - zmenené na `.jpg` a `image/jpeg`
 
-2. Oprav existujúce URL v databáze:
-   ```bash
-   docker exec n8n-postgres-1 psql -U n8n -d sentinel -c "
-   UPDATE runs
-   SET screenshot_path = REPLACE(screenshot_path, 'http://localhost:9000', 'https://storage.taxinearme.sk')
-   WHERE screenshot_path LIKE '%localhost:9000%';
-   "
-   ```
+**Poznámka:** Playwright generuje JPEG screenshoty (menšia veľkosť), nie PNG.
 
 ---
 
@@ -673,4 +712,4 @@ mc mirror local/sentinel-storage/ ./backup-storage/
 
 ---
 
-*Posledná aktualizácia: 29. december 2025*
+*Posledná aktualizácia: 2. január 2026*
