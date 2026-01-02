@@ -43,10 +43,17 @@ export interface SmartFetchResult extends FetchResult {
 export async function smartFetch(
   options: SmartFetchOptions
 ): Promise<SmartFetchResult> {
-  const preferredMode = options.preferredMode || 'auto';
+  let preferredMode = options.preferredMode || 'auto';
   const fallbackToHeadless = options.fallbackToHeadless !== false;
   const fallbackToFlareSolverr = options.fallbackToFlareSolverr !== false;
   const flareSolverrUrl = options.flareSolverrUrl || 'http://localhost:8191/v1';
+
+  // If screenshots are requested, force FlareSolverr/headless mode
+  // HTTP-only fetch cannot capture screenshots
+  if (options.screenshotOnChange && options.screenshotPath && preferredMode === 'auto') {
+    preferredMode = 'flaresolverr';
+    logger.debug(`Screenshots requested, forcing FlareSolverr mode for ${options.url}`);
+  }
 
   // If FlareSolverr is explicitly preferred
   if (preferredMode === 'flaresolverr') {
