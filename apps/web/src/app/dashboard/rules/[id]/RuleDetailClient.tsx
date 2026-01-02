@@ -131,16 +131,29 @@ export default function RuleDetailClient() {
     if (!rule) return;
     try {
       const newValue = !rule.captchaIntervalEnforced;
-      // When disabling CAPTCHA restriction, also set autoThrottleDisabled to prevent re-enabling
-      // When enabling, keep autoThrottleDisabled as-is (user might want to re-enable protection)
-      const updateData: { captchaIntervalEnforced: boolean; autoThrottleDisabled?: boolean } = {
+      // When disabling CAPTCHA restriction:
+      // 1. Set autoThrottleDisabled to prevent worker from re-enabling
+      // 2. Restore original schedule if available
+      const updateData: {
+        captchaIntervalEnforced: boolean;
+        autoThrottleDisabled?: boolean;
+        schedule?: typeof rule.schedule;
+      } = {
         captchaIntervalEnforced: newValue,
       };
       if (!newValue) {
         updateData.autoThrottleDisabled = true; // Prevent worker from re-enabling
+        // Restore original schedule if it was saved
+        if (rule.originalSchedule) {
+          updateData.schedule = rule.originalSchedule;
+        }
       }
       await api.updateRule(rule.id, updateData);
-      setRule((prev) => prev ? { ...prev, captchaIntervalEnforced: newValue } : null);
+      setRule((prev) => prev ? {
+        ...prev,
+        captchaIntervalEnforced: newValue,
+        schedule: newValue ? prev.schedule : (rule.originalSchedule || prev.schedule)
+      } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť CAPTCHA obmedzenie');
     }

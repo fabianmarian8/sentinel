@@ -91,6 +91,7 @@ export interface Rule {
   alertPolicy: AlertPolicy | null;
   screenshotOnChange: boolean;
   captchaIntervalEnforced?: boolean;
+  autoThrottleDisabled?: boolean;
   originalSchedule?: ScheduleConfig | null;
   source: Source;
   currentState?: RuleState | null;
