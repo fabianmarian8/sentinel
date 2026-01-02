@@ -1334,7 +1334,26 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
           waitUntil: 'domcontentloaded'
         });
         console.log('[ElementScreenshot] Using pre-fetched HTML with cookie-hiding CSS');
-        await page.waitForTimeout(1000);
+        // Wait for JS to render (popups like "Máte IČO?" appear after JS loads)
+        await page.waitForTimeout(2000);
+
+        // Handle JS-rendered popups (B2B promos, etc.) - Layer 1.5 only (safe for setContent)
+        if (dismissCookies) {
+          const dismissTexts = ['Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK'];
+          for (const text of dismissTexts) {
+            try {
+              const btn = page.getByRole('button', { name: text, exact: false });
+              if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+                await btn.click({ timeout: 2000 });
+                console.log(`[ElementScreenshot] Dismissed popup by text: "${text}"`);
+                await page.waitForTimeout(500);
+                break;
+              }
+            } catch {
+              // Button not found, continue
+            }
+          }
+        }
       } else if (options.cookies) {
         // Fallback: try navigation with cookies (may fail on Cloudflare sites)
         console.log('[ElementScreenshot] Navigating with FlareSolverr cookies');
