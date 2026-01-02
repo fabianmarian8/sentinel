@@ -18,7 +18,7 @@ export const envSchema = z.object({
   // API
   API_PREFIX: z.string().default('api'),
   THROTTLE_TTL: z.string().default('60'),
-  THROTTLE_LIMIT: z.string().default('10'),
+  THROTTLE_LIMIT: z.string().default('100'),  // Increased from 10 - too restrictive for dashboard
 
   // CORS
   CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:5173'),

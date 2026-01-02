@@ -46,9 +46,10 @@ export class ScrapingBrowserService {
     this.password = process.env.BRIGHTDATA_BROWSER_PASSWORD || '';
 
     // Build WebSocket endpoint
-    // Format: wss://brd-customer-{ID}-zone-{ZONE}:{PASS}@brd.superproxy.io:9222
+    // Format: wss://brd-customer-{ID}-zone-{ZONE}-country-{CC}:{PASS}@brd.superproxy.io:9222
+    // Use -country-us for consistent USD currency (BrightData rotates proxies otherwise)
     if (this.customerId && this.password) {
-      const auth = `brd-customer-${this.customerId}-zone-${this.zone}:${this.password}`;
+      const auth = `brd-customer-${this.customerId}-zone-${this.zone}-country-us:${this.password}`;
       this.wsEndpoint = `wss://${auth}@brd.superproxy.io:9222`;
       this.logger.log(`Scraping Browser initialized with zone: ${this.zone}`);
     } else {
@@ -98,9 +99,13 @@ export class ScrapingBrowserService {
       });
 
       // Create context and page
+      // Use en-US locale consistent with -country-us proxy targeting
       context = await browser.newContext({
         viewport: { width: 1920, height: 1080 },
         locale: 'en-US',
+        extraHTTPHeaders: {
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
       });
       page = await context.newPage();
 

@@ -239,7 +239,7 @@ export default function RuleDetailClient() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-gray-500">
+              <p className="mt-1 text-gray-500 break-all">
                 <a
                   href={rule.source.url}
                   target="_blank"
