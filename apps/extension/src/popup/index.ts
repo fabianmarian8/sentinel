@@ -23,6 +23,7 @@ import {
   getPassiveObservationsForUser,
   getPassiveRulesForUser,
   upsertPassiveRuleForUser,
+  deletePassiveRuleForUser,
   clearPassiveDataForUser,
 } from '../shared/storage';
 import { getErrorInfo } from '@sentinel/shared';
@@ -70,6 +71,8 @@ interface Rule {
 let currentUser: User | null = null;
 let workspaces: Workspace[] = [];
 let rules: Rule[] = [];
+let passiveRules: PassiveRule[] = [];
+let passiveObservations: PassiveObservation[] = [];
 let pendingElement: SelectedElement | null = null;
 let currentTab: chrome.tabs.Tab | null = null;
 let isRegisterMode = false;
@@ -106,6 +109,7 @@ const workspaceSelect = document.getElementById('workspace-id') as HTMLSelectEle
 const intervalSelect = document.getElementById('interval') as HTMLSelectElement;
 
 const rulesList = document.getElementById('rules-list') as HTMLDivElement;
+const passiveRulesList = document.getElementById('passive-rules-list') as HTMLDivElement;
 const settingsBtn = document.getElementById('settings-btn') as HTMLButtonElement;
 const rememberMeCheckbox = document.getElementById('remember-me') as HTMLInputElement;
 
@@ -131,6 +135,7 @@ const passiveStats = document.getElementById('passive-stats') as HTMLDivElement;
 const exportJsonBtn = document.getElementById('export-json') as HTMLButtonElement;
 const exportJsonlBtn = document.getElementById('export-jsonl') as HTMLButtonElement;
 const exportCsvBtn = document.getElementById('export-csv') as HTMLButtonElement;
+const captureNowBtn = document.getElementById('capture-now') as HTMLButtonElement;
 const clearPassiveDataBtn = document.getElementById('clear-passive-data') as HTMLButtonElement;
 const logoutBtn = document.getElementById('logout-btn') as HTMLButtonElement;
 
@@ -181,6 +186,20 @@ function csvEscape(value: string): string {
   return `"${String(v).replace(/"/g, '""')}"`;
 }
 
+function computePassiveSummary(rule: PassiveRule): {
+  lastValue: string | null;
+  lastCapturedAt: string | null;
+  captureCount: number;
+} {
+  const obsForRule = passiveObservations.filter(o => o.ruleId === rule.id);
+  const last = obsForRule.length > 0 ? obsForRule[0] : null;
+  return {
+    lastValue: last?.value ?? null,
+    lastCapturedAt: last?.capturedAt ?? null,
+    captureCount: obsForRule.length,
+  };
+}
+
 function openSettingsModal(): void {
   settingsModal.classList.remove('hidden');
 }
@@ -202,10 +221,80 @@ async function refreshPassiveStats(): Promise<{ rules: PassiveRule[]; observatio
   const rules = await getPassiveRulesForUser(user.id);
   const observations = await getPassiveObservationsForUser(user.id);
 
+  passiveRules = rules;
+  passiveObservations = observations;
+  displayPassiveRules();
+
   const enabledRules = rules.filter(r => r.enabled);
   passiveStats.textContent = `${enabledRules.length} passive rule(s), ${observations.length} capture(s)`;
 
   return { rules, observations };
+}
+
+function displayPassiveRules(): void {
+  if (!passiveRulesList) return;
+
+  if (!currentUser) {
+    passiveRulesList.innerHTML = '<p class="text-muted text-center">Login required</p>';
+    return;
+  }
+
+  if (!passiveRules || passiveRules.length === 0) {
+    passiveRulesList.innerHTML = '<p class="text-muted text-center">Žiadne local pravidlá. Vytvor rule s režimom “Passive capture”.</p>';
+    return;
+  }
+
+  const sorted = [...passiveRules].sort((a, b) => b.createdAt - a.createdAt);
+
+  passiveRulesList.innerHTML = sorted.map(rule => {
+    const summary = computePassiveSummary(rule);
+    const lastValue = summary.lastValue ? escapeHtml(summary.lastValue) : '<span class="text-muted">—</span>';
+    const lastTime = summary.lastCapturedAt ? escapeHtml(formatTime(summary.lastCapturedAt)) : 'never';
+
+    return `
+      <div class="rule-item ${rule.enabled ? '' : 'disabled'}" data-passive-rule-id="${escapeHtml(rule.id)}">
+        <div class="rule-header">
+          <span class="rule-name" title="${escapeHtml(rule.name)}">${escapeHtml(rule.name)}</span>
+          <div class="rule-actions">
+            <button class="rule-action-btn" data-action="toggle-passive" data-rule-id="${escapeHtml(rule.id)}" title="${rule.enabled ? 'Vypnúť' : 'Zapnúť'}">
+              ${rule.enabled ? '⏸️' : '▶️'}
+            </button>
+            <button class="rule-action-btn delete" data-action="delete-passive" data-rule-id="${escapeHtml(rule.id)}" title="Vymazať">
+              🗑️
+            </button>
+          </div>
+        </div>
+        <a href="${escapeHtml(rule.url)}" class="rule-url" target="_blank" title="Otvoriť stránku">
+          🧭 ${escapeHtml(rule.urlKey)}
+        </a>
+        <div class="rule-details">
+          <span class="rule-type badge">passive</span>
+          <span class="rule-value">Last: <strong>${lastValue}</strong></span>
+          <span class="text-muted text-small" style="margin-left: 8px;">${escapeHtml(String(summary.captureCount))} captures</span>
+        </div>
+        <div class="rule-status">
+          <span class="text-muted text-small">Last capture: ${lastTime}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  passiveRulesList.querySelectorAll('.rule-action-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const action = (btn as HTMLElement).dataset.action;
+      const ruleId = (btn as HTMLElement).dataset.ruleId;
+      if (!ruleId) return;
+
+      if (action === 'delete-passive') {
+        if (!confirm('Naozaj chceš vymazať toto local pravidlo a jeho captures?')) return;
+        await deletePassiveRule(ruleId);
+      } else if (action === 'toggle-passive') {
+        await togglePassiveRule(ruleId);
+      }
+    });
+  });
 }
 
 async function exportPassiveData(format: 'json' | 'jsonl' | 'csv'): Promise<void> {
@@ -422,6 +511,15 @@ async function loadRules(): Promise<void> {
   }
 }
 
+async function loadPassiveData(): Promise<void> {
+  try {
+    await refreshPassiveStats();
+  } catch (error) {
+    console.error('Failed to load passive data:', error);
+    passiveRulesList.innerHTML = '<p class="text-muted text-center">Could not load local data</p>';
+  }
+}
+
 function displayRules(): void {
   if (rules.length === 0) {
     rulesList.innerHTML = '<p class="text-muted text-center">Žiadne pravidlá. Vyber element na stránke!</p>';
@@ -576,6 +674,34 @@ async function toggleRule(ruleId: string): Promise<void> {
   } catch (error) {
     showToast(`Chyba: ${(error as Error).message}`, 'error');
   }
+}
+
+async function togglePassiveRule(ruleId: string): Promise<void> {
+  const { user } = await getStorageData();
+  if (!user?.id) {
+    showToast('Please login first', 'error');
+    return;
+  }
+
+  const rule = passiveRules.find(r => r.id === ruleId);
+  if (!rule) return;
+
+  const updated: PassiveRule = { ...rule, enabled: !rule.enabled };
+  await upsertPassiveRuleForUser(user.id, updated);
+  await refreshPassiveStats();
+  showToast(updated.enabled ? 'Passive rule enabled' : 'Passive rule disabled', 'success');
+}
+
+async function deletePassiveRule(ruleId: string): Promise<void> {
+  const { user } = await getStorageData();
+  if (!user?.id) {
+    showToast('Please login first', 'error');
+    return;
+  }
+
+  await deletePassiveRuleForUser(user.id, ruleId);
+  await refreshPassiveStats();
+  showToast('Passive rule deleted', 'success');
 }
 
 // Modal functions
@@ -980,6 +1106,9 @@ async function initPickerView(): Promise<void> {
   // Only after workspaces are loaded, check for pending element and show form
   await loadPendingElement();
 
+  // Load local passive rules/captures
+  await loadPassiveData();
+
   // Load rules after workspaces are loaded
   await loadRules();
 }
@@ -1098,6 +1227,44 @@ async function init(): Promise<void> {
   exportJsonBtn.addEventListener('click', () => exportPassiveData('json'));
   exportJsonlBtn.addEventListener('click', () => exportPassiveData('jsonl'));
   exportCsvBtn.addEventListener('click', () => exportPassiveData('csv'));
+
+  captureNowBtn.addEventListener('click', async () => {
+    await loadCurrentTab();
+    if (!currentTab?.id || !currentTab.url) {
+      showToast('No active tab', 'error');
+      return;
+    }
+
+    const url = currentTab.url;
+    if (
+      url.startsWith('chrome://') ||
+      url.startsWith('chrome-extension://') ||
+      url.startsWith('about:') ||
+      url.startsWith('edge://') ||
+      url.startsWith('moz-extension://') ||
+      url === ''
+    ) {
+      showToast('Na tejto stránke nemožno spúšťať capture', 'error');
+      return;
+    }
+
+    captureNowBtn.disabled = true;
+    const prevText = captureNowBtn.textContent;
+    captureNowBtn.textContent = 'Capturing...';
+
+    try {
+      const resp = await chrome.tabs.sendMessage(currentTab.id, { action: 'passiveCapture:runNow' });
+      const captured = resp?.captured ?? 0;
+      await refreshPassiveStats();
+      showToast(captured > 0 ? `Captured ${captured} value(s)` : 'No value captured on this page', 'info');
+    } catch (e) {
+      console.error('Capture now failed:', e);
+      showToast('Capture failed. Refresh the page and try again.', 'error');
+    } finally {
+      captureNowBtn.disabled = false;
+      captureNowBtn.textContent = prevText || 'Capture now (current tab)';
+    }
+  });
 
   clearPassiveDataBtn.addEventListener('click', async () => {
     const { user } = await getStorageData();

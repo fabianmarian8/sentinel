@@ -179,7 +179,8 @@ async function getPassiveStorage(): Promise<{
 export function computeUrlKey(url: string): string | null {
   try {
     const u = new URL(url);
-    return `${u.origin}${u.pathname}`;
+    const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname;
+    return `${u.origin}${path}`;
   } catch {
     return null;
   }

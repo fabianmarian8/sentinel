@@ -634,6 +634,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       break;
 
+    case 'passiveCapture:runNow':
+      runPassiveCaptureForCurrentPage()
+        .then((captured) => {
+          sendResponse({ success: true, captured });
+        })
+        .catch((error) => {
+          sendResponse({ success: false, error: (error as Error).message, captured: 0 });
+        });
+      return true;
+
     default:
       sendResponse({ success: false, error: 'Unknown action' });
   }
@@ -658,7 +668,7 @@ type PassiveRuleLike = {
   alternativeSelectors?: string[];
 };
 
-const PASSIVE_CAPTURE_ELEMENT_TIMEOUT_MS = 15000;
+const PASSIVE_CAPTURE_ELEMENT_TIMEOUT_MS = 30000;
 const PASSIVE_CAPTURE_DEDUP_WINDOW_MS = 2 * 60 * 1000;
 
 const passiveRecentCaptures = new Map<string, number>();
@@ -667,7 +677,8 @@ let passiveCaptureInFlight = false;
 function computeUrlKey(url: string): string | null {
   try {
     const u = new URL(url);
-    return `${u.origin}${u.pathname}`;
+    const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname;
+    return `${u.origin}${path}`;
   } catch {
     return null;
   }
@@ -727,15 +738,15 @@ async function waitForElement(selector: string, timeoutMs: number): Promise<Elem
   });
 }
 
-async function runPassiveCaptureForCurrentPage(): Promise<void> {
-  if (passiveCaptureInFlight) return;
-  if (isPicking) return;
+async function runPassiveCaptureForCurrentPage(): Promise<number> {
+  if (passiveCaptureInFlight) return 0;
+  if (isPicking) return 0;
 
   passiveCaptureInFlight = true;
   try {
     const url = location.href;
     const urlKey = computeUrlKey(url);
-    if (!urlKey) return;
+    if (!urlKey) return 0;
 
     let response: { success: boolean; rules?: PassiveRuleLike[] } | undefined;
     try {
@@ -744,11 +755,12 @@ async function runPassiveCaptureForCurrentPage(): Promise<void> {
         url,
       });
     } catch {
-      return;
+      return 0;
     }
 
-    if (!response?.success || !response.rules || response.rules.length === 0) return;
+    if (!response?.success || !response.rules || response.rules.length === 0) return 0;
 
+    let capturedCount = 0;
     for (const rule of response.rules) {
       const dedupeKey = `${rule.id}:${urlKey}`;
       const lastCapturedAt = passiveRecentCaptures.get(dedupeKey);
@@ -767,7 +779,7 @@ async function runPassiveCaptureForCurrentPage(): Promise<void> {
         passiveRecentCaptures.set(dedupeKey, Date.now());
 
         try {
-          await chrome.runtime.sendMessage({
+          const storeResp = await chrome.runtime.sendMessage({
             action: 'passiveCapture:store',
             observation: {
               ruleId: rule.id,
@@ -775,6 +787,7 @@ async function runPassiveCaptureForCurrentPage(): Promise<void> {
               value,
             },
           });
+          if (storeResp?.success) capturedCount++;
         } catch {
           // Ignore storage errors
         }
@@ -782,6 +795,8 @@ async function runPassiveCaptureForCurrentPage(): Promise<void> {
         break;
       }
     }
+
+    return capturedCount;
   } finally {
     passiveCaptureInFlight = false;
   }

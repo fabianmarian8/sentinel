@@ -103,8 +103,18 @@
         <!-- My Rules Section -->
         <div class="my-rules-section">
           <h4>📋 My Rules</h4>
-          <div id="rules-list" class="rules-list">
-            <p class="text-muted text-center">Loading rules...</p>
+          <div style="margin-top: 10px;">
+            <div class="text-muted text-small" style="margin-bottom: 6px;">Server monitoring</div>
+            <div id="rules-list" class="rules-list">
+              <p class="text-muted text-center">Loading rules...</p>
+            </div>
+          </div>
+
+          <div style="margin-top: 12px;">
+            <div class="text-muted text-small" style="margin-bottom: 6px;">Passive capture (local)</div>
+            <div id="passive-rules-list" class="rules-list">
+              <p class="text-muted text-center">Loading local rules...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -173,6 +183,7 @@
             <label>Passive capture (local data)</label>
             <div class="text-muted text-small" id="passive-stats">Loading...</div>
             <div class="action-buttons" style="margin-top: 10px; gap: 8px;">
+              <button type="button" class="btn" id="capture-now">Capture now (current tab)</button>
               <button type="button" class="btn" id="export-json">Export JSON</button>
               <button type="button" class="btn" id="export-jsonl">Export JSONL</button>
               <button type="button" class="btn" id="export-csv">Export CSV</button>

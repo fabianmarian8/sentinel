@@ -297,9 +297,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      const urlKeyAlt = urlKey.endsWith('/') ? urlKey.replace(/\/+$/, '') : `${urlKey}/`;
+
       const rules = (await getPassiveRulesForUser(user.id))
         .filter(r => r.enabled)
-        .filter(r => r.urlKey === urlKey);
+        .filter(r => r.urlKey === urlKey || r.urlKey === urlKeyAlt);
 
       sendResponse({ success: true, rules });
     })().catch((error) => {
