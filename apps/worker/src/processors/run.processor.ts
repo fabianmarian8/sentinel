@@ -14,7 +14,7 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { TieredFetchService } from '../services/tiered-fetch.service';
-import { smartFetch, extract, processAntiFlap, takeFullPageScreenshot } from '@sentinel/extractor';
+import { smartFetch, extract, processAntiFlap, takeElementScreenshot } from '@sentinel/extractor';
 import { getStorageClientAuto } from '@sentinel/storage';
 import type {
   ExtractionConfig,
@@ -670,13 +670,17 @@ export class RunProcessor extends WorkerHost {
         }
       } else if (screenshotOnChange && screenshotPath && paidTierUsed && fetchHtml.length > 5000) {
         // TieredFetch case: smartFetch screenshot was blocked, generate from TieredFetch HTML
+        // Use element screenshot with 400px padding (~10cm context around selector)
         this.logger.debug(
-          `[Job ${job.id}] TieredFetch succeeded, generating screenshot from HTML`,
+          `[Job ${job.id}] TieredFetch succeeded, generating element screenshot from HTML (selector: ${screenshotSelector || 'viewport'})`,
         );
         try {
-          const screenshotResult = await takeFullPageScreenshot({
-            html: fetchHtml,
+          const screenshotResult = await takeElementScreenshot({
+            url: rule.source.url,
+            html: fetchHtml, // Use pre-fetched HTML from TieredFetch
             outputPath: screenshotPath,
+            selector: screenshotSelector || 'body', // Use extraction selector or fallback to body
+            padding: 400, // ~10cm context around element
             quality: 80,
           });
 
