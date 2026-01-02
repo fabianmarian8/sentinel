@@ -1346,16 +1346,17 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
             let dismissed = false;
             for (const text of dismissTexts) {
               try {
-                const btn = page.getByRole('button', { name: text, exact: false });
-                if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
-                  await btn.click({ timeout: 2000 });
+                // Use getByText instead of getByRole('button') - Alza uses <a> and <div> styled as buttons
+                const element = page.getByText(text, { exact: true }).first();
+                if (await element.isVisible({ timeout: 300 }).catch(() => false)) {
+                  await element.click({ timeout: 2000 });
                   console.log(`[ElementScreenshot] Dismissed popup by text: "${text}" (round ${round + 1})`);
                   dismissed = true;
                   await page.waitForTimeout(500);
-                  // Continue checking other buttons in this round (don't break)
+                  // Continue checking other texts in this round (don't break)
                 }
               } catch {
-                // Button not found, continue
+                // Element not found, continue
               }
             }
             // If nothing was dismissed this round, no more popups to handle
