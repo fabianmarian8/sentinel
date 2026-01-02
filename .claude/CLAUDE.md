@@ -56,4 +56,35 @@
 **Problém:** Selektory s hash triedami (`css-abc123`) sa menia pri každom builde.
 **Riešenie:** Extension používa `@medv/finder` s blacklistom CSS-in-JS vzorov.
 
+### Screenshots full-page namiesto element (2. jan 2026)
+**Problém:** Screenshoty boli full-page (1920x1080, 500KB+) namiesto element-only s paddingom.
+
+**Príčiny a riešenia:**
+1. **HTTP mode nemá screenshoty** (`d6ecdf7`)
+   - HTTP fetch nemôže robiť screenshoty
+   - Fix: Ak `screenshotOnChange=true`, automaticky prepnúť na FlareSolverr mode
+
+2. **preferredMode=flaresolverr ignoroval selector** (`dfb6584`)
+   - FlareSolverr vždy robil full-page screenshot
+   - Fix: Pridaná kontrola `needsElementScreenshot`, volá sa `takeElementScreenshot`
+
+3. **Hardkódovaný padding** (`817ae5b`)
+   - Rôzne hodnoty (189px, 400px) na rôznych miestach
+   - Fix: Globálna konštanta `SCREENSHOT_PADDING_PX = 189` v `packages/extractor/src/config/screenshot.ts`
+
+**Výsledok:** Screenshot z 1920x993 (523KB) → 472x402 (22KB) - **24x menšie súbory**
+
+## Kľúčové konfigurácie
+
+### Screenshot padding
+```typescript
+// packages/extractor/src/config/screenshot.ts
+export const SCREENSHOT_PADDING_PX = 189;  // 10x10cm pri 96 DPI
+```
+
+### Dôležité súbory pre screenshoty
+- `packages/extractor/src/fetcher/smart-fetch.ts` - rozhodovanie o fetch mode
+- `packages/extractor/src/fetcher/headless.ts` - `takeElementScreenshot()`
+- `apps/worker/src/processors/run.processor.ts` - volanie smartFetch
+
 Detailný troubleshooting: `docs/OPERATIONS.md`

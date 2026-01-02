@@ -640,6 +640,89 @@ return response?.count || 0;
 
 ---
 
+### Screenshots sú full-page namiesto element-only
+
+**Príčina:** Pri `preferredMode=flaresolverr` (aktivované keď `screenshotOnChange=true`) systém ignoroval `screenshotSelector` a vždy robil full-page screenshot cez FlareSolverr.
+
+**Príznaky:**
+- Screenshot má rozmery ~1920x1080 (celý viewport)
+- Veľkosť súboru 500KB+ namiesto ~20KB
+- V logoch: `[FlareSolverr] Screenshot saved` namiesto `[ElementScreenshot] Captured element`
+
+**Root cause (opravené 2. januára 2026):**
+```typescript
+// PROBLÉM: preferredMode=flaresolverr ignoroval screenshotSelector
+if (preferredMode === 'flaresolverr') {
+  const result = await fetchFlareSolverr({
+    returnScreenshot: options.screenshotOnChange,  // <- vždy true, ignoruje selector
+    screenshotPath: options.screenshotPath,
+  });
+}
+```
+
+**Riešenie (commit `dfb6584`):**
+- Pridaná kontrola `needsElementScreenshot` aj do `preferredMode=flaresolverr` vetvy
+- Ak je selector, FlareSolverr nerobí screenshot a následne sa volá `takeElementScreenshot`
+
+**Overenie:**
+```bash
+journalctl -u sentinel-worker -f | grep -E "ElementScreenshot|padding"
+# Mal by ukazovať: [ElementScreenshot] Captured element with 189px padding
+```
+
+---
+
+### Screenshot padding je príliš veľký/malý
+
+**Konfigurácia:** Globálna konštanta v `packages/extractor/src/config/screenshot.ts`
+
+```typescript
+// 189px = 10x10cm kontext okolo elementu (pri 96 DPI)
+export const SCREENSHOT_PADDING_PX = 189;
+```
+
+**Zmena veľkosti:**
+1. Upraviť hodnotu v `screenshot.ts`
+2. Build: `pnpm --filter @sentinel/extractor build && pnpm --filter worker build`
+3. Deploy a reštart worker
+
+**Výpočet:**
+- 1 cm ≈ 37.8px (pri 96 DPI)
+- 10 cm = 378px celkovo = 189px padding na každú stranu
+
+**Poznámka:** Od commitu `817ae5b` je padding definovaný na jednom mieste.
+
+---
+
+### Screenshots nefungujú pre HTTP-mode fetche
+
+**Príčina:** HTTP fetch (bez browsera) nemôže robiť screenshoty - potrebuje Playwright/FlareSolverr.
+
+**Príznaky:**
+- `screenshot_path = NULL` v databáze
+- `fetch_mode_used = http` pre pravidlo s `screenshot_on_change = true`
+- Žiadne screenshoty v S3
+
+**Diagnóza:**
+```sql
+SELECT id, fetch_mode_used, screenshot_path
+FROM runs
+WHERE rule_id = 'xxx'
+ORDER BY started_at DESC
+LIMIT 5;
+```
+
+**Riešenie (commit `d6ecdf7`):**
+Ak `screenshotOnChange=true`, `smartFetch` teraz automaticky prepne na FlareSolverr mode:
+
+```typescript
+if (options.screenshotOnChange && options.screenshotPath && preferredMode === 'auto') {
+  preferredMode = 'flaresolverr';
+}
+```
+
+---
+
 ### CSS selektory s hash triedami (CSS-in-JS)
 
 **Príčina:** Stránky používajúce CSS-in-JS (Emotion, Styled Components, MUI) generujú triedy ako `css-abc123` ktoré sa menia pri každom builde.
