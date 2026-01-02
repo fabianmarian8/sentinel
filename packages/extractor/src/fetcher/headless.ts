@@ -1337,21 +1337,31 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         // Wait for JS to render (popups like "Máte IČO?" appear after JS loads)
         await page.waitForTimeout(2000);
 
-        // Handle JS-rendered popups (B2B promos, etc.) - Layer 1.5 only (safe for setContent)
+        // Handle JS-rendered popups (B2B promos, cookie banners, etc.) - Layer 1.5 only (safe for setContent)
+        // Loop multiple times to handle stacked popups (e.g., cookie popup -> B2B popup)
         if (dismissCookies) {
-          const dismissTexts = ['Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK'];
-          for (const text of dismissTexts) {
-            try {
-              const btn = page.getByRole('button', { name: text, exact: false });
-              if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
-                await btn.click({ timeout: 2000 });
-                console.log(`[ElementScreenshot] Dismissed popup by text: "${text}"`);
-                await page.waitForTimeout(500);
-                break;
+          const dismissTexts = ['Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK', 'Súhlasím', 'Prijať'];
+          // Try up to 3 rounds to dismiss stacked popups
+          for (let round = 0; round < 3; round++) {
+            let dismissed = false;
+            for (const text of dismissTexts) {
+              try {
+                const btn = page.getByRole('button', { name: text, exact: false });
+                if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+                  await btn.click({ timeout: 2000 });
+                  console.log(`[ElementScreenshot] Dismissed popup by text: "${text}" (round ${round + 1})`);
+                  dismissed = true;
+                  await page.waitForTimeout(500);
+                  // Continue checking other buttons in this round (don't break)
+                }
+              } catch {
+                // Button not found, continue
               }
-            } catch {
-              // Button not found, continue
             }
+            // If nothing was dismissed this round, no more popups to handle
+            if (!dismissed) break;
+            // Wait before next round for potential new popups to appear
+            await page.waitForTimeout(300);
           }
         }
       } else if (options.cookies) {
