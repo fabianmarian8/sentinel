@@ -63,6 +63,13 @@ export function Header({ onNewRule }: HeaderProps) {
                   <circle cx="16" cy="15" r="3" className="fill-white" />
                 </svg>
                 <span>Sentinel</span>
+                {/* Version Badge */}
+                <span
+                  className="ml-1 px-1.5 py-0.5 text-[10px] font-mono font-normal bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 rounded"
+                  title={`Build: ${process.env.NEXT_PUBLIC_BUILD_TIME || 'unknown'}`}
+                >
+                  v{process.env.NEXT_PUBLIC_VERSION || 'dev'}
+                </span>
               </Link>
 
               {/* Desktop Navigation */}
