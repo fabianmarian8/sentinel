@@ -172,6 +172,7 @@ export class RulesService {
       alertPolicy: rule.alertPolicy,
       captchaIntervalEnforced: rule.captchaIntervalEnforced,
       originalSchedule: rule.originalSchedule,
+      autoThrottleDisabled: rule.autoThrottleDisabled,
       currentState: rule.state
         ? {
             lastStable: rule.state.lastStable,
@@ -379,6 +380,7 @@ export class RulesService {
       createdAt: rule.createdAt,
       captchaIntervalEnforced: rule.captchaIntervalEnforced,
       originalSchedule: rule.originalSchedule,
+      autoThrottleDisabled: rule.autoThrottleDisabled,
       currentState: rule.state
         ? {
             lastStable: rule.state.lastStable,
@@ -442,6 +444,8 @@ export class RulesService {
         updateData.selectorFingerprint = dto.selectorFingerprint as any;
       if (dto.captchaIntervalEnforced !== undefined)
         updateData.captchaIntervalEnforced = dto.captchaIntervalEnforced;
+      if (dto.autoThrottleDisabled !== undefined)
+        updateData.autoThrottleDisabled = dto.autoThrottleDisabled;
 
       // If schedule is being updated, recalculate nextRunAt
       if (dto.schedule !== undefined) {

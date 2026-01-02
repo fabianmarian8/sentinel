@@ -177,6 +177,7 @@ model Rule {
   // Captcha/2captcha cost limitation - auto-switch to 1 day interval
   captchaIntervalEnforced Boolean   @default(false) @map("captcha_interval_enforced")
   originalSchedule        Json?     @map("original_schedule") // original schedule before captcha enforcement
+  autoThrottleDisabled    Boolean   @default(false) @map("auto_throttle_disabled") // user explicitly disabled auto-throttle
 
   source        Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   state         RuleState?

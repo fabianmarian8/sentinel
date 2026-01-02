@@ -148,8 +148,15 @@ export class BrightDataService {
       const cost = 0.0015; // $1.50/1000 = $0.0015 per request
 
       this.logger.log(
-        `[BrightData] Success: ${html.length} bytes in ${elapsed}ms (~$${cost.toFixed(4)})`,
+        `[BrightData] Response received: ${html.length} bytes in ${elapsed}ms (~$${cost.toFixed(4)})`,
       );
+
+      // Debug: Log first 500 chars of small responses to understand what we got
+      if (html.length < 5000) {
+        this.logger.debug(
+          `[BrightData] Small response content preview: ${html.substring(0, 500).replace(/\n/g, ' ')}`,
+        );
+      }
 
       // Validate response - empty responses are failures
       if (!html || html.length === 0) {

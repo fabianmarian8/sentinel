@@ -1340,10 +1340,21 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
         // Handle JS-rendered popups (B2B promos, cookie banners, etc.) - Layer 1.5 only (safe for setContent)
         // Loop multiple times to handle stacked popups (e.g., cookie popup -> B2B popup)
         if (dismissCookies) {
-          const dismissTexts = ['Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK', 'Súhlasím', 'Prijať'];
+          const dismissTexts = [
+            // Cookie consent texts
+            'Rozumiem', 'Odmietnuť všetko', 'Nie, ďakujem', 'Nie', 'Zavrieť', 'Close', 'OK', 'Súhlasím', 'Prijať',
+            // Slovak B2B popup texts (Alza "Máte IČO?" etc.)
+            'Som súkromná osoba',      // "I'm a private person"
+            'Nakupujem pre seba',      // "I'm buying for myself"
+            'Pokračovať',              // "Continue"
+            'Preskočiť'                // "Skip"
+          ];
+
           // Try up to 3 rounds to dismiss stacked popups
           for (let round = 0; round < 3; round++) {
             let dismissed = false;
+
+            // First try clicking by text content
             for (const text of dismissTexts) {
               try {
                 // Use getByText instead of getByRole('button') - Alza uses <a> and <div> styled as buttons
@@ -1359,6 +1370,35 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
                 // Element not found, continue
               }
             }
+
+            // If text-based dismissal didn't work, try CSS selectors for B2B popups
+            if (!dismissed) {
+              const b2bSelectors = [
+                'button[data-testid="b2b-modal-close"]',
+                'button[data-testid="b2b-popup-close"]',
+                '.alza-b2b-popup button',
+                '[class*="b2b"][class*="popup"] button',
+                '[class*="b2b"][class*="modal"] button',
+                '.b2b-popup button',
+                '.b2b-modal button'
+              ];
+
+              for (const selector of b2bSelectors) {
+                try {
+                  const element = page.locator(selector).first();
+                  if (await element.isVisible({ timeout: 300 }).catch(() => false)) {
+                    await element.click({ timeout: 2000 });
+                    console.log(`[ElementScreenshot] Dismissed B2B popup by selector: "${selector}" (round ${round + 1})`);
+                    dismissed = true;
+                    await page.waitForTimeout(500);
+                    break; // Break after first successful dismissal
+                  }
+                } catch {
+                  // Selector not found, continue
+                }
+              }
+            }
+
             // If nothing was dismissed this round, no more popups to handle
             if (!dismissed) break;
             // Wait before next round for potential new popups to appear

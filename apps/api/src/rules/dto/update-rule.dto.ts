@@ -14,4 +14,12 @@ export class UpdateRuleDto extends PartialType(
   @IsBoolean()
   @IsOptional()
   captchaIntervalEnforced?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'User explicitly disabled auto-throttle for paid services',
+    example: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  autoThrottleDisabled?: boolean;
 }

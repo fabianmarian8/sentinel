@@ -226,12 +226,13 @@ export class RunProcessor extends WorkerHost {
         // Messages like "Captcha solved" indicate paid 2captcha usage
         const usedPaidCaptchaSolver = flareSolverrMsg.includes('captcha');
 
-        if (usedPaidCaptchaSolver) {
+        // Skip if user has explicitly disabled auto-throttle
+        if (usedPaidCaptchaSolver && !rule.autoThrottleDisabled) {
           const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
           const currentInterval = currentSchedule?.intervalSeconds ?? 0;
           const ONE_DAY_SEC = 86400;
 
-          if (currentInterval < ONE_DAY_SEC) {
+          if (currentInterval < ONE_DAY_SEC && !rule.captchaIntervalEnforced) {
             const newNextRunAt = new Date(Date.now() + ONE_DAY_SEC * 1000);
             await this.prisma.rule.update({
               where: { id: ruleId },
@@ -351,7 +352,8 @@ export class RunProcessor extends WorkerHost {
       }
 
       // AUTO-THROTTLE: If paid tier was used, enforce 1-day minimum interval
-      if (paidTierUsed && !rule.captchaIntervalEnforced) {
+      // Skip if user has explicitly disabled auto-throttle
+      if (paidTierUsed && !rule.captchaIntervalEnforced && !rule.autoThrottleDisabled) {
         const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
         const currentInterval = currentSchedule?.intervalSeconds ?? 0;
         const ONE_DAY_SEC = 86400;
