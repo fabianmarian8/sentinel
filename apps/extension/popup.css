@@ -201,7 +201,7 @@ input::placeholder {
 /* Buttons */
 .btn {
   padding: 10px 16px;
-  border: none;
+  border: 1px solid var(--gray-200);
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
@@ -211,6 +211,12 @@ input::placeholder {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  background: var(--gray-100);
+  color: var(--gray-800);
+}
+
+.btn:hover {
+  background: var(--gray-200);
 }
 
 .btn:active {
@@ -233,6 +239,17 @@ input::placeholder {
 
 .btn-success:hover {
   background: var(--success-700);
+}
+
+.btn-danger {
+  background: var(--red-600);
+  color: white;
+  border-color: var(--red-600);
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .btn-large {

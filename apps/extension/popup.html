@@ -71,6 +71,13 @@
             <option value="text">Text Content</option>
             <option value="number">Number</option>
           </select>
+          <div class="form-row">
+            <label>Režim:</label>
+            <select id="monitoring-mode">
+              <option value="server" selected>Server monitoring</option>
+              <option value="passive">Passive capture (keď stránku otvorím)</option>
+            </select>
+          </div>
           <select id="workspace-id" required>
             <option value="">Select workspace...</option>
           </select>
@@ -148,6 +155,39 @@
 
             <button type="submit" class="btn btn-primary">Uložiť nastavenia</button>
           </form>
+        </div>
+      </div>
+
+      <!-- Settings Modal -->
+      <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>⚙️ Settings</h3>
+            <button class="icon-btn modal-close" id="settings-modal-close">✕</button>
+          </div>
+          <div class="form-group">
+            <div class="text-muted text-small" id="settings-user-line"></div>
+          </div>
+
+          <div class="form-group">
+            <label>Passive capture (local data)</label>
+            <div class="text-muted text-small" id="passive-stats">Loading...</div>
+            <div class="action-buttons" style="margin-top: 10px; gap: 8px;">
+              <button type="button" class="btn" id="export-json">Export JSON</button>
+              <button type="button" class="btn" id="export-jsonl">Export JSONL</button>
+              <button type="button" class="btn" id="export-csv">Export CSV</button>
+            </div>
+            <div class="action-buttons" style="margin-top: 10px;">
+              <button type="button" class="btn btn-danger" id="clear-passive-data">Clear local data</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Account</label>
+            <div class="action-buttons">
+              <button type="button" class="btn btn-primary" id="logout-btn">Logout</button>
+            </div>
+          </div>
         </div>
       </div>
     </main>

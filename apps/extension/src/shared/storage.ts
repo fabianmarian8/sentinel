@@ -42,6 +42,8 @@ export interface StorageData {
   apiBaseUrl?: string;
   rulesCache?: RuleCache;
   pendingElement?: SelectedElement;
+  passiveRulesByUser?: PassiveRulesByUser;
+  passiveObservationsByUser?: PassiveObservationsByUser;
   /**
    * Saved email for convenience (NOT password - security risk)
    * Password should never be stored, use authToken instead
@@ -131,4 +133,139 @@ export async function apiRequest<T>(
   }
 
   return response.json();
+}
+
+export type MonitoringMode = 'server' | 'passive';
+
+export interface PassiveRule {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  name: string;
+  ruleType: 'price' | 'availability' | 'text' | 'number';
+  enabled: boolean;
+  createdAt: number;
+
+  url: string;
+  urlKey: string; // origin + pathname (ignores query/hash) for matching
+  selector: string;
+  alternativeSelectors?: string[];
+}
+
+export interface PassiveObservation {
+  id: string;
+  userId: string;
+  ruleId: string;
+  capturedAt: string; // ISO
+  url: string;
+  urlKey: string;
+  value: string;
+}
+
+export type PassiveRulesByUser = Record<string, PassiveRule[]>;
+export type PassiveObservationsByUser = Record<string, PassiveObservation[]>;
+
+async function getPassiveStorage(): Promise<{
+  passiveRulesByUser?: PassiveRulesByUser;
+  passiveObservationsByUser?: PassiveObservationsByUser;
+}> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['passiveRulesByUser', 'passiveObservationsByUser'], (result) => {
+      resolve(result as any);
+    });
+  });
+}
+
+export function computeUrlKey(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
+function generateId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+}
+
+export function createPassiveRule(input: Omit<PassiveRule, 'id' | 'createdAt' | 'urlKey'>): PassiveRule {
+  const urlKey = computeUrlKey(input.url) ?? input.url;
+  return {
+    ...input,
+    id: generateId(),
+    createdAt: Date.now(),
+    urlKey,
+  };
+}
+
+export function createPassiveObservation(input: Omit<PassiveObservation, 'id' | 'capturedAt' | 'urlKey'>): PassiveObservation {
+  const urlKey = computeUrlKey(input.url) ?? input.url;
+  return {
+    ...input,
+    id: generateId(),
+    capturedAt: new Date().toISOString(),
+    urlKey,
+  };
+}
+
+export async function getPassiveRulesForUser(userId: string): Promise<PassiveRule[]> {
+  const { passiveRulesByUser } = await getPassiveStorage();
+  return passiveRulesByUser?.[userId] ?? [];
+}
+
+export async function upsertPassiveRuleForUser(userId: string, rule: PassiveRule): Promise<void> {
+  const data = await getPassiveStorage();
+  const passiveRulesByUser: PassiveRulesByUser = data.passiveRulesByUser ?? {};
+  const existing = passiveRulesByUser[userId] ?? [];
+  const idx = existing.findIndex(r => r.id === rule.id);
+  const nextRules = idx >= 0 ? existing.map(r => (r.id === rule.id ? rule : r)) : [rule, ...existing];
+  passiveRulesByUser[userId] = nextRules;
+  await setStorageData({ passiveRulesByUser });
+}
+
+export async function deletePassiveRuleForUser(userId: string, ruleId: string): Promise<void> {
+  const data = await getPassiveStorage();
+  const passiveRulesByUser: PassiveRulesByUser = data.passiveRulesByUser ?? {};
+  const passiveObservationsByUser: PassiveObservationsByUser = data.passiveObservationsByUser ?? {};
+
+  const existingRules = passiveRulesByUser[userId] ?? [];
+  passiveRulesByUser[userId] = existingRules.filter(r => r.id !== ruleId);
+
+  const existingObs = passiveObservationsByUser[userId] ?? [];
+  passiveObservationsByUser[userId] = existingObs.filter(o => o.ruleId !== ruleId);
+
+  await setStorageData({ passiveRulesByUser, passiveObservationsByUser });
+}
+
+const MAX_PASSIVE_OBSERVATIONS_PER_USER = 5000;
+
+export async function addPassiveObservationForUser(userId: string, obs: PassiveObservation): Promise<void> {
+  const data = await getPassiveStorage();
+  const passiveObservationsByUser: PassiveObservationsByUser = data.passiveObservationsByUser ?? {};
+  const existing = passiveObservationsByUser[userId] ?? [];
+
+  const next = [obs, ...existing];
+  passiveObservationsByUser[userId] = next.slice(0, MAX_PASSIVE_OBSERVATIONS_PER_USER);
+  await setStorageData({ passiveObservationsByUser });
+}
+
+export async function getPassiveObservationsForUser(userId: string): Promise<PassiveObservation[]> {
+  const { passiveObservationsByUser } = await getPassiveStorage();
+  return passiveObservationsByUser?.[userId] ?? [];
+}
+
+export async function clearPassiveDataForUser(userId: string): Promise<void> {
+  const data = await getPassiveStorage();
+  const passiveRulesByUser: PassiveRulesByUser = data.passiveRulesByUser ?? {};
+  const passiveObservationsByUser: PassiveObservationsByUser = data.passiveObservationsByUser ?? {};
+
+  delete passiveRulesByUser[userId];
+  delete passiveObservationsByUser[userId];
+
+  await setStorageData({ passiveRulesByUser, passiveObservationsByUser });
 }

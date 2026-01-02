@@ -648,4 +648,173 @@ window.addEventListener('beforeunload', () => {
 
 console.log('Sentinel content script loaded');
 
+// =========================
+// Passive Capture (Hybrid)
+// =========================
+
+type PassiveRuleLike = {
+  id: string;
+  selector: string;
+  alternativeSelectors?: string[];
+};
+
+const PASSIVE_CAPTURE_ELEMENT_TIMEOUT_MS = 15000;
+const PASSIVE_CAPTURE_DEDUP_WINDOW_MS = 2 * 60 * 1000;
+
+const passiveRecentCaptures = new Map<string, number>();
+let passiveCaptureInFlight = false;
+
+function computeUrlKey(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForElement(selector: string, timeoutMs: number): Promise<Element | null> {
+  try {
+    const immediate = document.querySelector(selector);
+    if (immediate) return immediate;
+  } catch {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const start = Date.now();
+    const observer = new MutationObserver(() => {
+      if (Date.now() - start > timeoutMs) {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve(null);
+        return;
+      }
+
+      let found: Element | null = null;
+      try {
+        found = document.querySelector(selector);
+      } catch {
+        found = null;
+      }
+
+      if (found) {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve(found);
+      }
+    });
+
+    const root = document.documentElement;
+    if (!root) {
+      settled = true;
+      resolve(null);
+      return;
+    }
+
+    observer.observe(root, { childList: true, subtree: true });
+
+    // Safety timeout
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      observer.disconnect();
+      resolve(null);
+    }, timeoutMs);
+  });
+}
+
+async function runPassiveCaptureForCurrentPage(): Promise<void> {
+  if (passiveCaptureInFlight) return;
+  if (isPicking) return;
+
+  passiveCaptureInFlight = true;
+  try {
+    const url = location.href;
+    const urlKey = computeUrlKey(url);
+    if (!urlKey) return;
+
+    let response: { success: boolean; rules?: PassiveRuleLike[] } | undefined;
+    try {
+      response = await chrome.runtime.sendMessage({
+        action: 'passiveCapture:getRules',
+        url,
+      });
+    } catch {
+      return;
+    }
+
+    if (!response?.success || !response.rules || response.rules.length === 0) return;
+
+    for (const rule of response.rules) {
+      const dedupeKey = `${rule.id}:${urlKey}`;
+      const lastCapturedAt = passiveRecentCaptures.get(dedupeKey);
+      if (lastCapturedAt && Date.now() - lastCapturedAt < PASSIVE_CAPTURE_DEDUP_WINDOW_MS) {
+        continue;
+      }
+
+      const selectors = [rule.selector, ...(rule.alternativeSelectors || [])].filter(Boolean);
+      for (const selector of selectors) {
+        const element = await waitForElement(selector, PASSIVE_CAPTURE_ELEMENT_TIMEOUT_MS);
+        if (!element) continue;
+
+        const value = getElementValue(element)?.trim();
+        if (!value) continue;
+
+        passiveRecentCaptures.set(dedupeKey, Date.now());
+
+        try {
+          await chrome.runtime.sendMessage({
+            action: 'passiveCapture:store',
+            observation: {
+              ruleId: rule.id,
+              url,
+              value,
+            },
+          });
+        } catch {
+          // Ignore storage errors
+        }
+
+        break;
+      }
+    }
+  } finally {
+    passiveCaptureInFlight = false;
+  }
+}
+
+function initPassiveCapture(): void {
+  const run = () => {
+    runPassiveCaptureForCurrentPage().catch(() => {});
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once: true });
+  } else {
+    run();
+  }
+
+  // Lightweight SPA detection: poll for URL changes
+  let lastHref = location.href;
+  setInterval(() => {
+    if (location.href !== lastHref) {
+      lastHref = location.href;
+      run();
+    }
+  }, 1500);
+
+  // Also re-run when tab becomes visible again (common when user switches tabs)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      run();
+    }
+  });
+}
+
+initPassiveCapture();
+
 export {};

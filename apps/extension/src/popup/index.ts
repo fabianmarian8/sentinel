@@ -16,6 +16,14 @@ import {
   removeStorageKeys,
   apiRequest,
   clearLegacyCredentials,
+  type MonitoringMode,
+  type PassiveObservation,
+  type PassiveRule,
+  createPassiveRule,
+  getPassiveObservationsForUser,
+  getPassiveRulesForUser,
+  upsertPassiveRuleForUser,
+  clearPassiveDataForUser,
 } from '../shared/storage';
 import { getErrorInfo } from '@sentinel/shared';
 
@@ -93,6 +101,7 @@ const pickerAccordionToggle = document.getElementById('picker-accordion-toggle')
 const createRuleForm = document.getElementById('create-rule-form') as HTMLFormElement;
 const ruleNameInput = document.getElementById('rule-name') as HTMLInputElement;
 const ruleTypeSelect = document.getElementById('rule-type') as HTMLSelectElement;
+const monitoringModeSelect = document.getElementById('monitoring-mode') as HTMLSelectElement;
 const workspaceSelect = document.getElementById('workspace-id') as HTMLSelectElement;
 const intervalSelect = document.getElementById('interval') as HTMLSelectElement;
 
@@ -113,6 +122,17 @@ const alertDecreaseLabel = document.getElementById('alert-decrease-label') as HT
 const thresholdGroup = document.getElementById('threshold-group') as HTMLDivElement;
 const thresholdType = document.getElementById('threshold-type') as HTMLSelectElement;
 const thresholdValue = document.getElementById('threshold-value') as HTMLInputElement;
+
+// Settings modal elements
+const settingsModal = document.getElementById('settings-modal') as HTMLDivElement;
+const settingsModalClose = document.getElementById('settings-modal-close') as HTMLButtonElement;
+const settingsUserLine = document.getElementById('settings-user-line') as HTMLDivElement;
+const passiveStats = document.getElementById('passive-stats') as HTMLDivElement;
+const exportJsonBtn = document.getElementById('export-json') as HTMLButtonElement;
+const exportJsonlBtn = document.getElementById('export-jsonl') as HTMLButtonElement;
+const exportCsvBtn = document.getElementById('export-csv') as HTMLButtonElement;
+const clearPassiveDataBtn = document.getElementById('clear-passive-data') as HTMLButtonElement;
+const logoutBtn = document.getElementById('logout-btn') as HTMLButtonElement;
 
 // Helper Functions
 function showView(view: 'login' | 'picker' | 'status'): void {
@@ -142,6 +162,112 @@ function showToast(message: string, type: 'success' | 'error' | 'info' = 'info')
   document.body.appendChild(toast);
 
   setTimeout(() => toast.remove(), 3000);
+}
+
+function downloadTextFile(filename: string, mimeType: string, content: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(value: string): string {
+  const v = value ?? '';
+  return `"${String(v).replace(/"/g, '""')}"`;
+}
+
+function openSettingsModal(): void {
+  settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal(): void {
+  settingsModal.classList.add('hidden');
+}
+
+async function refreshPassiveStats(): Promise<{ rules: PassiveRule[]; observations: PassiveObservation[] } | null> {
+  const { user } = await getStorageData();
+  if (!user?.id) {
+    passiveStats.textContent = 'Not logged in';
+    settingsUserLine.textContent = '';
+    return null;
+  }
+
+  settingsUserLine.textContent = `Logged in as ${user.email}`;
+
+  const rules = await getPassiveRulesForUser(user.id);
+  const observations = await getPassiveObservationsForUser(user.id);
+
+  const enabledRules = rules.filter(r => r.enabled);
+  passiveStats.textContent = `${enabledRules.length} passive rule(s), ${observations.length} capture(s)`;
+
+  return { rules, observations };
+}
+
+async function exportPassiveData(format: 'json' | 'jsonl' | 'csv'): Promise<void> {
+  const { user } = await getStorageData();
+  const data = await refreshPassiveStats();
+  if (!user?.id || !data) {
+    showToast('Please login first', 'error');
+    return;
+  }
+
+  const { rules, observations } = data;
+  const rulesById = new Map<string, PassiveRule>(rules.map(r => [r.id, r]));
+  const sortedObs = [...observations].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeUser = (user.email || user.id).replace(/[^a-z0-9._-]+/gi, '_').slice(0, 64);
+
+  if (format === 'json') {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      userId: user.id,
+      rules,
+      observations: sortedObs,
+    };
+    downloadTextFile(`sentinel-passive-${safeUser}-${stamp}.json`, 'application/json', JSON.stringify(payload, null, 2));
+    showToast('Exported JSON', 'success');
+    return;
+  }
+
+  if (format === 'jsonl') {
+    const lines = sortedObs.map(o => {
+      const r = rulesById.get(o.ruleId);
+      return JSON.stringify({
+        capturedAt: o.capturedAt,
+        ruleId: o.ruleId,
+        ruleName: r?.name ?? null,
+        ruleType: r?.ruleType ?? null,
+        url: o.url,
+        value: o.value,
+      });
+    });
+    downloadTextFile(`sentinel-passive-${safeUser}-${stamp}.jsonl`, 'application/x-ndjson', lines.join('\n') + '\n');
+    showToast('Exported JSONL', 'success');
+    return;
+  }
+
+  // CSV
+  const header = ['capturedAt', 'ruleId', 'ruleName', 'ruleType', 'url', 'value'];
+  const rows = sortedObs.map(o => {
+    const r = rulesById.get(o.ruleId);
+    return [
+      csvEscape(o.capturedAt),
+      csvEscape(o.ruleId),
+      csvEscape(r?.name ?? ''),
+      csvEscape(r?.ruleType ?? ''),
+      csvEscape(o.url),
+      csvEscape(o.value),
+    ].join(',');
+  });
+  const csv = [header.join(','), ...rows].join('\n') + '\n';
+  downloadTextFile(`sentinel-passive-${safeUser}-${stamp}.csv`, 'text/csv', csv);
+  showToast('Exported CSV', 'success');
 }
 
 function updateAuthUI(): void {
@@ -655,6 +781,7 @@ async function createRule(event: Event): Promise<void> {
 
   const ruleName = ruleNameInput.value.trim();
   const ruleType = ruleTypeSelect.value;
+  const monitoringMode = (monitoringModeSelect.value as MonitoringMode) || 'server';
   const workspaceId = workspaceSelect.value;
   const intervalSeconds = parseInt(intervalSelect.value, 10);
 
@@ -681,6 +808,54 @@ async function createRule(event: Event): Promise<void> {
   submitBtn.textContent = 'Creating...';
 
   try {
+    // PASSIVE CAPTURE (LOCAL): store rule locally, capture value when user visits the page
+    if (monitoringMode === 'passive') {
+      const { authToken, user } = await getStorageData();
+      if (!authToken || !user?.id) {
+        showToast('Please login first', 'error');
+        return;
+      }
+
+      const passiveRule = createPassiveRule({
+        userId: user.id,
+        workspaceId,
+        name: ruleName,
+        ruleType: ruleType as any,
+        enabled: true,
+        url: pendingElement.pageUrl,
+        selector: pendingElement.selector,
+        alternativeSelectors: pendingElement.fingerprint?.alternativeSelectors,
+      });
+
+      await upsertPassiveRuleForUser(user.id, passiveRule);
+      await refreshPassiveStats();
+
+      showToast('Passive rule saved. It will capture when you visit the page.', 'success');
+
+      // Clear pending element from storage (properly remove the key)
+      await removeStorageKeys(['pendingElement']);
+
+      // Send message to content script to remove highlight
+      if (currentTab?.id) {
+        chrome.tabs.sendMessage(currentTab.id, { action: 'clearSelection' }).catch(() => {
+          // Ignore errors if content script not loaded
+        });
+      }
+
+      // Reset form and collapse accordion
+      createRuleForm.reset();
+      createRuleForm.classList.add('hidden');
+      selectionPreview.classList.add('hidden');
+      previewSelectorText.textContent = '';
+      previewValueText.textContent = '';
+      pendingElement = null;
+      pickerAccordion.classList.add('collapsed');
+
+      // Keep server monitoring rules intact; just refresh list as normal
+      await loadRules();
+      return;
+    }
+
     // First, create or get the source for this URL
     const sourcePayload = {
       url: pendingElement.pageUrl,
@@ -902,14 +1077,48 @@ async function init(): Promise<void> {
   });
   ruleConfigForm.addEventListener('submit', saveRuleConfig);
 
-  // Settings button - for now, just show logout option
+  // Monitoring mode UI
+  const updateMonitoringModeUi = () => {
+    const mode = (monitoringModeSelect.value as MonitoringMode) || 'server';
+    intervalSelect.disabled = mode === 'passive';
+  };
+  monitoringModeSelect.addEventListener('change', updateMonitoringModeUi);
+  updateMonitoringModeUi();
+
+  // Settings modal
   settingsBtn.addEventListener('click', async () => {
-    if (currentUser) {
-      if (confirm(`Logged in as ${currentUser.email}\n\nDo you want to logout?`)) {
-        await logout();
-        showToast('Logged out', 'info');
-      }
+    openSettingsModal();
+    await refreshPassiveStats();
+  });
+  settingsModalClose.addEventListener('click', closeSettingsModal);
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettingsModal();
+  });
+
+  exportJsonBtn.addEventListener('click', () => exportPassiveData('json'));
+  exportJsonlBtn.addEventListener('click', () => exportPassiveData('jsonl'));
+  exportCsvBtn.addEventListener('click', () => exportPassiveData('csv'));
+
+  clearPassiveDataBtn.addEventListener('click', async () => {
+    const { user } = await getStorageData();
+    if (!user?.id) {
+      showToast('Please login first', 'error');
+      return;
     }
+
+    if (!confirm('Clear all passive capture rules and local captures for this account?')) return;
+
+    await clearPassiveDataForUser(user.id);
+    await refreshPassiveStats();
+    showToast('Local data cleared', 'success');
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    if (!currentUser) return;
+    if (!confirm(`Logged in as ${currentUser.email}\n\nDo you want to logout?`)) return;
+    await logout();
+    closeSettingsModal();
+    showToast('Logged out', 'info');
   });
 }
 

@@ -14,6 +14,11 @@ import {
   setStorageData,
   apiRequest,
   StorageData,
+  computeUrlKey,
+  type PassiveRule,
+  createPassiveObservation,
+  addPassiveObservationForUser,
+  getPassiveRulesForUser,
 } from '../shared/storage';
 
 // Extended storage interface for badge tracking
@@ -277,6 +282,66 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
 
 // Message handling
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Passive capture: content script asks for matching rules for current URL
+  if (message.action === 'passiveCapture:getRules' && typeof message.url === 'string') {
+    (async () => {
+      const { authToken, user } = await getStorageData();
+      if (!authToken || !user?.id) {
+        sendResponse({ success: true, rules: [] });
+        return;
+      }
+
+      const urlKey = computeUrlKey(message.url);
+      if (!urlKey) {
+        sendResponse({ success: true, rules: [] });
+        return;
+      }
+
+      const rules = (await getPassiveRulesForUser(user.id))
+        .filter(r => r.enabled)
+        .filter(r => r.urlKey === urlKey);
+
+      sendResponse({ success: true, rules });
+    })().catch((error) => {
+      console.error('Failed to get passive capture rules:', error);
+      sendResponse({ success: false, error: (error as Error).message, rules: [] });
+    });
+
+    return true;
+  }
+
+  // Passive capture: content script sends captured value to store locally
+  if (
+    message.action === 'passiveCapture:store' &&
+    message.observation &&
+    typeof message.observation.ruleId === 'string' &&
+    typeof message.observation.url === 'string' &&
+    typeof message.observation.value === 'string'
+  ) {
+    (async () => {
+      const { authToken, user } = await getStorageData();
+      if (!authToken || !user?.id) {
+        sendResponse({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const obs = createPassiveObservation({
+        userId: user.id,
+        ruleId: message.observation.ruleId,
+        url: message.observation.url,
+        value: message.observation.value,
+      });
+
+      await addPassiveObservationForUser(user.id, obs);
+      sendResponse({ success: true });
+    })().catch((error) => {
+      console.error('Failed to store passive observation:', error);
+      sendResponse({ success: false, error: (error as Error).message });
+    });
+
+    return true;
+  }
+
   // Handle element selection from content script
   if (message.action === 'elementSelected' && message.element) {
     handleElementSelected(message.element, sender)
