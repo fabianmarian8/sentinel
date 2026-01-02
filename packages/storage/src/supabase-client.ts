@@ -97,16 +97,16 @@ export class SupabaseStorageClient {
   }
 
   /**
-   * Upload screenshot (PNG)
+   * Upload screenshot (JPEG - smaller file size)
    */
   async uploadScreenshot(
     ruleId: string,
     runId: string,
     screenshot: Buffer,
   ): Promise<UploadResult> {
-    const key = this.generateKey(ruleId, runId, 'screenshot', 'png');
+    const key = this.generateKey(ruleId, runId, 'screenshot', 'jpg');
     return this.upload(key, screenshot, {
-      contentType: 'image/png',
+      contentType: 'image/jpeg',
     });
   }
 
