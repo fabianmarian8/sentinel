@@ -130,8 +130,17 @@ export default function RuleDetailClient() {
   const handleToggleCaptchaRestriction = async () => {
     if (!rule) return;
     try {
-      await api.updateRule(rule.id, { captchaIntervalEnforced: !rule.captchaIntervalEnforced });
-      setRule((prev) => prev ? { ...prev, captchaIntervalEnforced: !prev.captchaIntervalEnforced } : null);
+      const newValue = !rule.captchaIntervalEnforced;
+      // When disabling CAPTCHA restriction, also set autoThrottleDisabled to prevent re-enabling
+      // When enabling, keep autoThrottleDisabled as-is (user might want to re-enable protection)
+      const updateData: { captchaIntervalEnforced: boolean; autoThrottleDisabled?: boolean } = {
+        captchaIntervalEnforced: newValue,
+      };
+      if (!newValue) {
+        updateData.autoThrottleDisabled = true; // Prevent worker from re-enabling
+      }
+      await api.updateRule(rule.id, updateData);
+      setRule((prev) => prev ? { ...prev, captchaIntervalEnforced: newValue } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nepodarilo sa zmeniť CAPTCHA obmedzenie');
     }
