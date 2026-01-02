@@ -24,6 +24,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 export interface StorageConfig {
   /** S3-compatible endpoint URL (e.g., for MinIO, Cloudflare R2) */
   endpoint?: string;
+  /** Public URL for accessing objects (e.g., via CDN or reverse proxy) */
+  publicUrl?: string;
   /** AWS region or 'auto' for R2 */
   region: string;
   /** Access key ID */
@@ -99,7 +101,10 @@ export class StorageClient {
     this.bucket = config.bucket;
 
     // Build base URL for object access
-    if (config.endpoint) {
+    // Prefer publicUrl if provided (for CDN/reverse proxy access)
+    if (config.publicUrl) {
+      this.baseUrl = config.publicUrl.replace(/\/$/, ''); // Remove trailing slash
+    } else if (config.endpoint) {
       // For S3-compatible services (MinIO, R2, etc.)
       this.baseUrl = config.forcePathStyle
         ? `${config.endpoint}/${config.bucket}`
@@ -347,6 +352,7 @@ export function createStorageClient(): StorageClient | null {
 
   return new StorageClient({
     endpoint: process.env.S3_ENDPOINT,
+    publicUrl: process.env.S3_PUBLIC_URL,
     region: process.env.S3_REGION || process.env.AWS_REGION || 'auto',
     accessKeyId,
     secretAccessKey,
