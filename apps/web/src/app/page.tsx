@@ -5,19 +5,19 @@ import Link from 'next/link';
 
 export default function Home() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-white dark:bg-neutral-900">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white dark:bg-neutral-900 shadow-sm border-b border-neutral-200 dark:border-neutral-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <span className="text-2xl font-bold text-primary-600">Sentinel</span>
-              <span className="ml-2 text-sm text-gray-500">Change Intelligence</span>
+              <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">Change Intelligence</span>
             </div>
             <nav className="flex items-center space-x-4">
               <Link
                 href="/dashboard"
-                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium"
               >
                 Dashboard
               </Link>
@@ -35,11 +35,11 @@ export default function Home() {
       {/* Hero Section */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900 sm:text-5xl md:text-6xl">
+          <h1 className="text-4xl font-bold text-neutral-900 dark:text-white sm:text-5xl md:text-6xl">
             Monitor Website Changes
             <span className="block text-primary-600">Automatically</span>
           </h1>
-          <p className="mt-3 max-w-md mx-auto text-base text-gray-500 sm:text-lg md:mt-5 md:text-xl md:max-w-3xl">
+          <p className="mt-3 max-w-md mx-auto text-base text-neutral-500 dark:text-neutral-400 sm:text-lg md:mt-5 md:text-xl md:max-w-3xl">
             Track prices, availability, and content changes across any website.
             Get instant alerts when something changes.
           </p>
@@ -52,7 +52,7 @@ export default function Home() {
             </Link>
             <Link
               href="/demo"
-              className="bg-white text-primary-600 border border-primary-600 hover:bg-primary-50 px-8 py-3 rounded-lg text-lg font-medium"
+              className="bg-white dark:bg-neutral-800 text-primary-600 border border-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/30 px-8 py-3 rounded-lg text-lg font-medium"
             >
               See Demo
             </Link>
@@ -139,12 +139,12 @@ function FeatureCard({
   icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-100 hover:shadow-xl transition-shadow">
-      <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center text-primary-600">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-6 shadow-lg border border-neutral-100 dark:border-neutral-700 hover:shadow-xl transition-shadow">
+      <div className="w-12 h-12 bg-primary-100 dark:bg-primary-900/30 rounded-lg flex items-center justify-center text-primary-600 dark:text-primary-400">
         {icon}
       </div>
-      <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
-      <p className="mt-2 text-gray-500">{description}</p>
+      <h3 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-white">{title}</h3>
+      <p className="mt-2 text-neutral-500 dark:text-neutral-400">{description}</p>
     </div>
   );
 }
