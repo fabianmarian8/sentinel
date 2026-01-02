@@ -4,6 +4,7 @@ import { PlaywrightBlocker } from '@ghostery/adblocker-playwright';
 import type { FetchResult, FetchOptions } from './types';
 import type { ErrorCode } from '@sentinel/shared';
 import { getRandomUserAgent } from './user-agents';
+import { SCREENSHOT_PADDING_PX } from '../config';
 
 // Singleton blocker instance (loaded once, reused)
 let blockerInstance: PlaywrightBlocker | null = null;
@@ -401,7 +402,7 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
         const screenshotQuality = options.screenshotQuality ?? 80;
         const screenshotType = 'jpeg' as const;
 
-        // If selector provided, screenshot element with padding (~400px = ~10cm context)
+        // If selector provided, screenshot element with padding
         if (options.screenshotSelector) {
           const element = await page.$(options.screenshotSelector);
           if (element) {
@@ -411,8 +412,8 @@ export async function fetchHeadless(options: HeadlessFetchOptions): Promise<Fetc
 
             const box = await element.boundingBox();
             if (box) {
-              // Add 400px padding around element for ~10cm context (clamped to viewport)
-              const padding = 400;
+              // Add padding around element (clamped to viewport)
+              const padding = SCREENSHOT_PADDING_PX;
               const viewport = page.viewportSize() || { width: 1920, height: 1080 };
               const clip = {
                 x: Math.max(0, box.x - padding),
@@ -1257,7 +1258,7 @@ export interface ElementScreenshotOptions {
   url: string;
   selector: string;
   outputPath: string;
-  padding?: number;        // Default 200px (~5cm context)
+  padding?: number;        // Default SCREENSHOT_PADDING_PX (189px = 10x10cm context)
   timeout?: number;        // Default 30000ms
   dismissCookies?: boolean; // Default true
   userAgent?: string;
@@ -1275,7 +1276,7 @@ export async function takeElementScreenshot(options: ElementScreenshotOptions): 
   screenshotPath?: string;
   error?: string;
 }> {
-  const padding = options.padding ?? 400; // ~10cm context around element
+  const padding = options.padding ?? SCREENSHOT_PADDING_PX;
   const dismissCookies = options.dismissCookies !== false;
 
   const browser = await getBrowser();

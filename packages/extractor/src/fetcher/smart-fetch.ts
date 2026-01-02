@@ -5,6 +5,7 @@ import { fetchFlareSolverr, isFlareSolverrAvailable } from './flaresolverr';
 import { detectBlock } from './block-detection';
 import { isJavaScriptRequired } from './spa-detection';
 import { logger } from '../utils/logger';
+import { SCREENSHOT_PADDING_PX } from '../config';
 import type { FetchOptions, FetchResult } from './types';
 
 export interface SmartFetchOptions extends FetchOptions {
@@ -164,7 +165,7 @@ export async function smartFetch(
             url: options.url,
             selector: options.screenshotSelector,
             outputPath: options.screenshotPath,
-            padding: 189, // ~10x10cm context around element (378px / 2)
+            padding: SCREENSHOT_PADDING_PX,
             dismissCookies: true, // Will click cookie banner dismiss button
             userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
             // Pass cf_clearance and other cookies from FlareSolverr
@@ -184,7 +185,7 @@ export async function smartFetch(
               url: options.url,
               selector: options.screenshotSelector,
               outputPath: options.screenshotPath,
-              padding: 189,
+              padding: SCREENSHOT_PADDING_PX,
               dismissCookies: true,
               userAgent: flareSolverrResult.headers?.['x-flaresolverr-user-agent'],
               cookies: flareSolverrResult.headers?.['x-flaresolverr-cookies'],
