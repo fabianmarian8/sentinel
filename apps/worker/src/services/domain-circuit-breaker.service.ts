@@ -10,7 +10,7 @@
  * - Success resets failure counter
  */
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { ProviderId, FetchOutcome } from '../types/fetch-result';
 
@@ -21,10 +21,10 @@ export interface CircuitState {
   openCount: number; // How many times opened (for escalating cooldown)
 }
 
-const FAILURE_OUTCOMES: FetchOutcome[] = ['blocked', 'empty', 'timeout', 'provider_error', 'network_error'];
+const FAILURE_OUTCOMES: FetchOutcome[] = ['blocked', 'captcha_required', 'empty', 'timeout', 'provider_error', 'network_error'];
 
 @Injectable()
-export class DomainCircuitBreakerService implements OnModuleInit {
+export class DomainCircuitBreakerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DomainCircuitBreakerService.name);
   private redis: Redis | null = null;
 
@@ -53,12 +53,20 @@ export class DomainCircuitBreakerService implements OnModuleInit {
     }
   }
 
+  async onModuleDestroy() {
+    if (this.redis) {
+      await this.redis.quit();
+      this.logger.log('Domain Circuit Breaker disconnected from Redis');
+    }
+  }
+
   private getKey(workspaceId: string, hostname: string, providerId: ProviderId): string {
     return `${this.KEY_PREFIX}${workspaceId}:${hostname}:${providerId}`;
   }
 
   private getCooldownMs(openCount: number): number {
-    const tierIndex = Math.min(openCount, this.COOLDOWN_TIERS_MS.length - 1);
+    // openCount is 1-indexed (first open = 1), so subtract 1 for array index
+    const tierIndex = Math.min(Math.max(0, openCount - 1), this.COOLDOWN_TIERS_MS.length - 1);
     return this.COOLDOWN_TIERS_MS[tierIndex];
   }
 
