@@ -112,12 +112,16 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
   }
 
   // Generic CAPTCHA detection
-  if (
-    lower.includes('captcha') ||
+  // Exclude 'captcha' in JavaScript config (disableAutoRefreshOnCaptchaPassed)
+  const hasCaptchaPage = (
+    (lower.includes('captcha') && !lower.includes('disableautorefreshoncaptchapassed')) ||
     lower.includes('i am not a robot') ||
     lower.includes('recaptcha') ||
-    lower.includes('hcaptcha')
-  ) {
+    lower.includes('hcaptcha') ||
+    lower.includes('verify you are human') ||
+    lower.includes('complete this security check')
+  );
+  if (hasCaptchaPage) {
     signals.push('captcha_detected');
     return { isBlocked: true, kind: 'captcha', confidence: 0.85, signals };
   }
