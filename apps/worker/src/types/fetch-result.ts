@@ -22,7 +22,8 @@ export type FetchOutcome =
   | 'empty'
   | 'timeout'
   | 'network_error'
-  | 'provider_error';
+  | 'provider_error'
+  | 'preferred_unavailable';  // P0: preferredProvider not available (allowPaid=false or disabled)
 
 export type BlockKind =
   | 'cloudflare'

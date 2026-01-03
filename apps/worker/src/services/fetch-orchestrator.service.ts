@@ -84,6 +84,47 @@ export class FetchOrchestratorService {
     // Build provider candidates (free first, then paid if allowed)
     const candidates = this.buildCandidates(req, config);
 
+    // P0: Early exit if stopAfterPreferredFailure=true and preferredProvider is unavailable
+    // This prevents wasting attempts on free providers when paid provider is required but not allowed
+    if (req.stopAfterPreferredFailure && req.preferredProvider) {
+      const preferredAvailable = candidates.some(c => c.id === req.preferredProvider);
+      if (!preferredAvailable) {
+        const reason = !config.allowPaid
+          ? `allowPaid=${config.allowPaid}`
+          : req.disabledProviders?.includes(req.preferredProvider)
+            ? `in disabledProviders`
+            : 'provider not configured';
+
+        this.logger.warn(
+          `[Orchestrator] preferredProvider ${req.preferredProvider} not available (${reason}), ` +
+          `early exit due to stopAfterPreferredFailure=true`
+        );
+
+        const unavailableResult: FetchResult = {
+          provider: req.preferredProvider,
+          outcome: 'preferred_unavailable',
+          bodyBytes: 0,
+          costUsd: 0,
+          signals: ['preferred_provider_unavailable', reason.replace(/[=\s]/g, '_')],
+          errorDetail: `Preferred provider ${req.preferredProvider} not available: ${reason}`,
+        };
+
+        // Log the attempt for tracking
+        await this.attemptLogger.logAttempt({
+          workspaceId: req.workspaceId,
+          ruleId: req.ruleId,
+          hostname: req.hostname,
+          url: req.url,
+          result: unavailableResult,
+        });
+
+        return {
+          final: unavailableResult,
+          attempts: [unavailableResult],
+        };
+      }
+    }
+
     for (const candidate of candidates) {
       if (attempts.length >= config.maxAttemptsPerRun) {
         this.logger.debug(`[Orchestrator] Max attempts reached (${config.maxAttemptsPerRun})`);

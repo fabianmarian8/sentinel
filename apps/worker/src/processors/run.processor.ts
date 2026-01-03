@@ -261,6 +261,7 @@ export class RunProcessor extends WorkerHost {
           'network_error': 'FETCH_CONNECTION',
           'provider_error': 'SYSTEM_WORKER_CRASH',
           'empty': 'EXTRACT_EMPTY_VALUE',
+          'preferred_unavailable': 'PREFERRED_PROVIDER_UNAVAILABLE',  // P0: preferredProvider not available
         };
         const errorCode = errorCodeMap[orchestratorResult.final.outcome] || 'UNKNOWN';
 
