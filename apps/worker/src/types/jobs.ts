@@ -45,11 +45,25 @@ export interface AlertDispatchPayload {
 }
 
 /**
+ * Payload for maintenance jobs (cleanup, retention, etc.)
+ */
+export interface MaintenanceJobPayload {
+  /** Type of maintenance task */
+  task: 'rawsample-cleanup' | 'fetch-attempts-cleanup';
+
+  /** Optional configuration overrides */
+  config?: {
+    retentionDays?: number;
+  };
+}
+
+/**
  * Queue names as constants
  */
 export const QUEUE_NAMES = {
   RULES_RUN: 'rules-run',
   ALERTS_DISPATCH: 'alerts-dispatch',
+  MAINTENANCE: 'maintenance',
 } as const;
 
 export type QueueName = typeof QUEUE_NAMES[keyof typeof QUEUE_NAMES];

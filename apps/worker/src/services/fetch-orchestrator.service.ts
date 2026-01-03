@@ -18,7 +18,9 @@ import { FetchAttemptLoggerService } from './fetch-attempt-logger.service';
 import { TwoCaptchaService } from './twocaptcha.service';
 import { BrightDataService } from './brightdata.service';
 import { ScrapingBrowserService } from './scraping-browser.service';
-import type { FetchRequest, FetchResult, ProviderId, FetchOutcome } from '../types/fetch-result';
+import { RateLimiterService } from './rate-limiter.service';
+import { determineFetchOutcome } from '../utils/fetch-classifiers';
+import type { FetchRequest, FetchResult, ProviderId, FetchOutcome, BlockKind } from '../types/fetch-result';
 
 export interface OrchestratorConfig {
   maxAttemptsPerRun: number;
@@ -30,12 +32,26 @@ export interface OrchestratorResult {
   final: FetchResult;
   attempts: FetchResult[];
   html?: string;
+  rawSample?: string;  // First 50KB of HTML for debugging problematic fetches
+}
+
+/**
+ * Raw result from provider before outcome classification
+ */
+interface ProviderRawResult {
+  success: boolean;
+  html?: string;
+  costUsd: number;
+  httpStatus?: number;
+  latencyMs?: number;
+  errorDetail?: string;
+  contentType?: string;
 }
 
 type ProviderCandidate = {
   id: ProviderId;
   isPaid: boolean;
-  execute: () => Promise<{ outcome: FetchOutcome; html?: string; costUsd: number; httpStatus?: number; latencyMs?: number; errorDetail?: string }>;
+  execute: () => Promise<ProviderRawResult>;
 };
 
 @Injectable()
@@ -49,16 +65,21 @@ export class FetchOrchestratorService {
     private readonly twocaptcha: TwoCaptchaService,
     private readonly brightdata: BrightDataService,
     private readonly scrapingBrowser: ScrapingBrowserService,
+    private readonly rateLimiter: RateLimiterService,
   ) {}
 
   /**
    * Execute fetch with policy-driven provider selection
+   *
+   * Uses unified outcome classification via determineFetchOutcome()
+   * Rate limiting is applied per-provider inside the orchestrator
    */
   async fetch(req: FetchRequest, config: OrchestratorConfig): Promise<OrchestratorResult> {
     this.logger.log(`[Orchestrator] Fetching ${req.url} (maxAttempts=${config.maxAttemptsPerRun}, allowPaid=${config.allowPaid})`);
 
     const attempts: FetchResult[] = [];
     let finalHtml: string | undefined;
+    let rawSampleHtml: string | undefined;
 
     // Build provider candidates (free first, then paid if allowed)
     const candidates = this.buildCandidates(req, config);
@@ -73,6 +94,13 @@ export class FetchOrchestratorService {
       const canExecute = await this.circuitBreaker.canExecute(req.workspaceId, req.hostname, candidate.id);
       if (!canExecute) {
         this.logger.debug(`[Orchestrator] Circuit breaker OPEN for ${candidate.id}@${req.hostname}, skipping`);
+        continue;
+      }
+
+      // PR2: Rate limiting per-provider (moved from RunProcessor)
+      const rateLimitResult = await this.rateLimiter.consumeToken(req.hostname, candidate.id);
+      if (!rateLimitResult.allowed) {
+        this.logger.debug(`[Orchestrator] Rate limit for ${candidate.id}@${req.hostname}, skipping`);
         continue;
       }
 
@@ -100,16 +128,25 @@ export class FetchOrchestratorService {
         const providerResult = await candidate.execute();
         const latencyMs = providerResult.latencyMs ?? (Date.now() - startTime);
 
+        // PR1: Use unified classifier for outcome determination
+        const classification = determineFetchOutcome(
+          providerResult.httpStatus,
+          providerResult.html,
+          providerResult.contentType,
+          providerResult.errorDetail,
+        );
+
         const fetchResult: FetchResult = {
           provider: candidate.id,
-          outcome: providerResult.outcome,
+          outcome: classification.outcome,
+          blockKind: classification.blockKind,
           httpStatus: providerResult.httpStatus,
           bodyText: providerResult.html,
           bodyBytes: providerResult.html?.length ?? 0,
           costUsd: providerResult.costUsd,
           latencyMs,
           errorDetail: providerResult.errorDetail,
-          signals: [],
+          signals: classification.signals,
         };
 
         // Log attempt
@@ -122,23 +159,34 @@ export class FetchOrchestratorService {
         });
 
         // Update circuit breaker
-        if (providerResult.outcome === 'ok') {
+        if (classification.outcome === 'ok') {
           await this.circuitBreaker.recordSuccess(req.workspaceId, req.hostname, candidate.id);
         } else {
-          await this.circuitBreaker.recordFailure(req.workspaceId, req.hostname, candidate.id, providerResult.outcome);
+          await this.circuitBreaker.recordFailure(req.workspaceId, req.hostname, candidate.id, classification.outcome);
         }
 
         attempts.push(fetchResult);
 
         // Success case - return immediately
-        if (providerResult.outcome === 'ok' && providerResult.html) {
+        if (classification.outcome === 'ok' && providerResult.html) {
           this.logger.log(`[Orchestrator] Success with ${candidate.id} (${latencyMs}ms, $${providerResult.costUsd.toFixed(4)})`);
           finalHtml = providerResult.html;
           break;
         }
 
+        // PR3: Store raw sample for problematic outcomes (for debugging)
+        if (providerResult.html && this.shouldStoreRawSample(classification.outcome)) {
+          rawSampleHtml = providerResult.html;
+        }
+
         // Non-success - continue to next provider
-        this.logger.debug(`[Orchestrator] ${candidate.id} failed: ${providerResult.outcome}`);
+        this.logger.debug(`[Orchestrator] ${candidate.id} failed: ${classification.outcome} (signals: ${classification.signals.join(', ')})`);
+
+        // PR4: Stop after preferred provider failure if configured
+        if (req.stopAfterPreferredFailure && req.preferredProvider === candidate.id) {
+          this.logger.log(`[Orchestrator] Preferred provider ${candidate.id} failed, stopping (stopAfterPreferredFailure=true)`);
+          break;
+        }
 
       } catch (error) {
         const err = error as Error;
@@ -153,7 +201,7 @@ export class FetchOrchestratorService {
           costUsd: 0,
           latencyMs,
           errorDetail: err.message,
-          signals: [],
+          signals: ['exception'],
         };
 
         await this.attemptLogger.logAttempt({
@@ -167,6 +215,12 @@ export class FetchOrchestratorService {
         await this.circuitBreaker.recordFailure(req.workspaceId, req.hostname, candidate.id, 'provider_error');
 
         attempts.push(fetchResult);
+
+        // PR4: Stop after preferred provider failure if configured
+        if (req.stopAfterPreferredFailure && req.preferredProvider === candidate.id) {
+          this.logger.log(`[Orchestrator] Preferred provider ${candidate.id} failed, stopping (stopAfterPreferredFailure=true)`);
+          break;
+        }
       }
     }
 
@@ -176,7 +230,7 @@ export class FetchOrchestratorService {
       outcome: 'network_error',
       bodyBytes: 0,
       costUsd: 0,
-      signals: [],
+      signals: ['no_providers_available'],
       errorDetail: 'No providers available or all failed',
     };
 
@@ -184,17 +238,39 @@ export class FetchOrchestratorService {
       final: finalResult,
       attempts,
       html: finalHtml,
+      rawSample: this.extractRawSample(finalResult, rawSampleHtml),
     };
+  }
+
+  /**
+   * PR3: Check if outcome warrants storing raw HTML sample for debugging
+   */
+  private shouldStoreRawSample(outcome: FetchOutcome): boolean {
+    const problemOutcomes: FetchOutcome[] = ['blocked', 'captcha_required', 'empty'];
+    return problemOutcomes.includes(outcome);
+  }
+
+  /**
+   * PR3: Extract raw sample (max 50KB) for debugging problematic fetches
+   */
+  private extractRawSample(result: FetchResult, html?: string): string | undefined {
+    if (!this.shouldStoreRawSample(result.outcome)) return undefined;
+    if (!html) return undefined;
+
+    const MAX_SAMPLE_SIZE = 50000;
+    return html.slice(0, MAX_SAMPLE_SIZE);
   }
 
   /**
    * Build ordered list of provider candidates
    * Free providers first, then paid providers if allowed
+   *
+   * PR4: Respects disabledProviders from FetchRequest
    */
   private buildCandidates(req: FetchRequest, config: OrchestratorConfig): ProviderCandidate[] {
     const candidates: ProviderCandidate[] = [];
 
-    // Free providers (always included)
+    // Free providers (always included unless disabled)
     candidates.push(
       {
         id: 'http',
@@ -211,12 +287,13 @@ export class FetchOrchestratorService {
           });
 
           return {
-            outcome: this.mapToOutcome(result),
+            success: result.success,
             html: result.html ?? undefined,
             costUsd: 0,
             httpStatus: result.httpStatus ?? undefined,
             latencyMs: result.timings.total,
             errorDetail: result.errorDetail ?? undefined,
+            contentType: result.headers?.['content-type'],
           };
         },
       },
@@ -237,12 +314,13 @@ export class FetchOrchestratorService {
           });
 
           return {
-            outcome: this.mapToOutcome(result),
+            success: result.success,
             html: result.html ?? undefined,
             costUsd: 0,
             httpStatus: result.httpStatus ?? undefined,
             latencyMs: result.timings.total,
             errorDetail: result.errorDetail ?? undefined,
+            contentType: result.headers?.['content-type'],
           };
         },
       },
@@ -260,12 +338,13 @@ export class FetchOrchestratorService {
           });
 
           return {
-            outcome: this.mapToOutcome(result),
+            success: result.success,
             html: result.html ?? undefined,
             costUsd: 0,
             httpStatus: result.httpStatus ?? undefined,
             latencyMs: result.timings.total,
             errorDetail: result.errorDetail ?? undefined,
+            contentType: result.headers?.['content-type'],
           };
         },
       },
@@ -285,7 +364,7 @@ export class FetchOrchestratorService {
             });
 
             return {
-              outcome: result.success ? 'ok' : 'provider_error',
+              success: result.success,
               html: result.html,
               costUsd: result.cost ?? 0,
               httpStatus: result.httpStatus,
@@ -304,7 +383,7 @@ export class FetchOrchestratorService {
             const result = await this.scrapingBrowser.fetch(req.url, req.timeoutMs);
 
             return {
-              outcome: result.success ? 'ok' : 'provider_error',
+              success: result.success,
               html: result.html,
               costUsd: result.cost ?? 0,
               httpStatus: result.httpStatus,
@@ -329,7 +408,7 @@ export class FetchOrchestratorService {
             });
 
             return {
-              outcome: result.success ? 'ok' : 'provider_error',
+              success: result.success,
               html: result.html,
               costUsd: result.cost ?? 0,
               httpStatus: result.httpStatus,
@@ -340,86 +419,23 @@ export class FetchOrchestratorService {
       }
     }
 
-    // If preferredProvider is set and it's a paid provider, move it to the front (paid-first)
+    // PR4: Filter out disabled providers
+    let filteredCandidates = candidates;
+    if (req.disabledProviders && req.disabledProviders.length > 0) {
+      filteredCandidates = candidates.filter(c => !req.disabledProviders!.includes(c.id));
+      this.logger.debug(`[Orchestrator] Filtered out disabled providers: ${req.disabledProviders.join(', ')}`);
+    }
+
+    // If preferredProvider is set, move it to the front (paid-first)
     if (req.preferredProvider && config.allowPaid) {
-      const preferredIndex = candidates.findIndex(c => c.id === req.preferredProvider);
+      const preferredIndex = filteredCandidates.findIndex(c => c.id === req.preferredProvider);
       if (preferredIndex > 0) {
-        const [preferred] = candidates.splice(preferredIndex, 1);
-        candidates.unshift(preferred);
+        const [preferred] = filteredCandidates.splice(preferredIndex, 1);
+        filteredCandidates.unshift(preferred);
         this.logger.log(`[Orchestrator] Preferred provider ${req.preferredProvider} moved to front (paid-first mode)`);
       }
     }
 
-    return candidates;
-  }
-
-  /**
-   * Map smartFetch result to FetchOutcome
-   * IMPORTANT: Checks HTML content for block pages even if success=true
-   */
-  private mapToOutcome(result: { success: boolean; errorCode: string | null; html: string | null }): FetchOutcome {
-    // Check for known error codes first
-    if (result.errorCode === 'CLOUDFLARE_BLOCK' || result.errorCode === 'DATADOME_BLOCK') {
-      return 'blocked';
-    }
-
-    if (result.errorCode === 'TIMEOUT' || result.errorCode === 'NETWORK_TIMEOUT') {
-      return 'timeout';
-    }
-
-    if (result.errorCode === 'EMPTY_RESPONSE') {
-      return 'empty';
-    }
-
-    // Even if success=true, check HTML for block pages (DataDome, Cloudflare challenge pages)
-    if (result.html) {
-      const blockCheck = this.checkForBlockPage(result.html);
-      if (blockCheck.isBlocked) {
-        this.logger.warn(`[Orchestrator] Block page detected: ${blockCheck.kind} (${blockCheck.signals.join(', ')})`);
-        return 'blocked';
-      }
-      return 'ok';
-    }
-
-    return 'network_error';
-  }
-
-  /**
-   * Check HTML content for block pages (DataDome, Cloudflare, etc.)
-   */
-  private checkForBlockPage(html: string): { isBlocked: boolean; kind: string; signals: string[] } {
-    const lower = html.toLowerCase();
-    const signals: string[] = [];
-
-    // DataDome detection (Etsy, etc.)
-    if (
-      lower.includes('datadome') ||
-      lower.includes('captcha-delivery.com') ||
-      lower.includes('geo.captcha-delivery.com') ||
-      lower.includes('datadome device check')
-    ) {
-      signals.push('datadome_challenge');
-      return { isBlocked: true, kind: 'datadome', signals };
-    }
-
-    // Cloudflare challenge
-    if (
-      lower.includes('cf-browser-verification') ||
-      (lower.includes('cloudflare') && lower.includes('checking your browser'))
-    ) {
-      signals.push('cloudflare_challenge');
-      return { isBlocked: true, kind: 'cloudflare', signals };
-    }
-
-    // Generic CAPTCHA
-    if (
-      lower.includes('captcha') &&
-      html.length < 10000  // Challenge pages are small
-    ) {
-      signals.push('captcha_page');
-      return { isBlocked: true, kind: 'captcha', signals };
-    }
-
-    return { isBlocked: false, kind: '', signals: [] };
+    return filteredCandidates;
   }
 }

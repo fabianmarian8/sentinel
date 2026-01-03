@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PROVIDER_COSTS } from '../types/fetch-result';
 
 /**
  * Bright Data Web Unlocker Integration
  *
  * Uses Bright Data's Web Unlocker API for DataDome bypass
- * Pricing: $1.50/1000 requests (pay-as-you-go)
+ * Pricing: Uses PROVIDER_COSTS.brightdata.perRequest (single source of truth)
  *
  * Features:
  * - AI-driven CAPTCHA solving
@@ -26,7 +27,7 @@ export interface BrightDataFetchResult {
   html?: string;
   httpStatus?: number;
   error?: string;
-  cost?: number; // $0.0015 per request
+  cost?: number; // Uses PROVIDER_COSTS.brightdata.perRequest
 }
 
 @Injectable()
@@ -62,7 +63,7 @@ export class BrightDataService {
    * - Bot detection
    * - IP rotation
    *
-   * Cost: ~$0.0015 per request ($1.50/1000)
+   * Cost: PROVIDER_COSTS.brightdata.perRequest (single source of truth)
    */
   async fetch(request: BrightDataFetchRequest): Promise<BrightDataFetchResult> {
     if (!this.apiToken) {
@@ -152,7 +153,7 @@ export class BrightDataService {
 
       // Success - get HTML content
       const html = await response.text();
-      const cost = 0.0015; // $1.50/1000 = $0.0015 per request
+      const cost = PROVIDER_COSTS.brightdata.perRequest;
 
       this.logger.log(
         `[BrightData] Response received: ${html.length} bytes in ${elapsed}ms (~$${cost.toFixed(4)})`,

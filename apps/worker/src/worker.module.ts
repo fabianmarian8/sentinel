@@ -19,6 +19,7 @@ import { FetchAttemptLoggerService } from './services/fetch-attempt-logger.servi
 import { FetchOrchestratorService } from './services/fetch-orchestrator.service';
 import { RunProcessor } from './processors/run.processor';
 import { AlertProcessor } from './processors/alert.processor';
+import { MaintenanceProcessor } from './processors/maintenance.processor';
 import { QUEUE_NAMES } from './types/jobs';
 
 /**
@@ -71,6 +72,19 @@ import { QUEUE_NAMES } from './types/jobs';
         },
       },
     }),
+
+    // Register maintenance queue
+    BullModule.registerQueue({
+      name: QUEUE_NAMES.MAINTENANCE,
+      defaultJobOptions: {
+        removeOnComplete: {
+          count: 100,
+        },
+        removeOnFail: {
+          count: 100,
+        },
+      },
+    }),
   ],
   providers: [
     PrismaService,
@@ -90,6 +104,7 @@ import { QUEUE_NAMES } from './types/jobs';
     FetchOrchestratorService,
     RunProcessor,
     AlertProcessor,
+    MaintenanceProcessor,
   ],
   exports: [QueueService, PrismaService, DedupeService, ConditionEvaluatorService, AlertGeneratorService, RateLimiterService, HealthScoreService],
 })

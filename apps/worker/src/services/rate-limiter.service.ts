@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { WorkerConfigService } from '../config/config.service';
+import type { ProviderId } from '../types/fetch-result';
 
 /**
  * Rate limiting configuration per domain
@@ -8,7 +9,9 @@ import { WorkerConfigService } from '../config/config.service';
 export interface RateLimitConfig {
   httpRequestsPerMinute: number; // default 12 (1 per 5s)
   headlessRequestsPerMinute: number; // default 4 (1 per 15s)
+  paidRequestsPerMinute: number; // default 2 (1 per 30s) - for paid providers
   burstSize: number; // default 3
+  paidBurstSize: number; // default 1 - conservative for paid providers
 }
 
 /**
@@ -45,8 +48,20 @@ export class RateLimiterService {
   private readonly defaultConfig: RateLimitConfig = {
     httpRequestsPerMinute: 12, // 1 per 5 seconds
     headlessRequestsPerMinute: 4, // 1 per 15 seconds
+    paidRequestsPerMinute: 2, // 1 per 30 seconds - conservative for paid providers
     burstSize: 3,
+    paidBurstSize: 1, // No burst for paid providers - cost control
   };
+
+  /**
+   * Paid providers that incur costs per request
+   */
+  private readonly paidProviders: ProviderId[] = [
+    'brightdata',
+    'scraping_browser',
+    'twocaptcha_proxy',
+    'twocaptcha_datadome',
+  ];
 
   constructor(private configService: WorkerConfigService) {
     const redisConfig = this.configService.redis;
@@ -70,18 +85,39 @@ export class RateLimiterService {
   /**
    * Generate Redis key for rate limit bucket
    */
-  private getKey(domain: string, mode: 'http' | 'headless' | 'flaresolverr'): string {
-    return `ratelimit:${mode}:${domain}`;
+  private getKey(domain: string, provider: ProviderId): string {
+    return `ratelimit:${provider}:${domain}`;
+  }
+
+  /**
+   * Check if provider is a paid provider
+   */
+  private isPaidProvider(provider: ProviderId): boolean {
+    return this.paidProviders.includes(provider);
   }
 
   /**
    * Get token refill rate (tokens per second)
    */
-  private getRefillRate(mode: 'http' | 'headless' | 'flaresolverr'): number {
-    if (mode === 'http') {
+  private getRefillRate(provider: ProviderId): number {
+    if (this.isPaidProvider(provider)) {
+      return this.defaultConfig.paidRequestsPerMinute / 60;
+    }
+    if (provider === 'http' || provider === 'mobile_ua') {
       return this.defaultConfig.httpRequestsPerMinute / 60;
     }
+    // headless, flaresolverr
     return this.defaultConfig.headlessRequestsPerMinute / 60;
+  }
+
+  /**
+   * Get max tokens (burst size) for provider
+   */
+  private getMaxTokens(provider: ProviderId): number {
+    if (this.isPaidProvider(provider)) {
+      return this.defaultConfig.paidBurstSize;
+    }
+    return this.defaultConfig.burstSize;
   }
 
   /**
@@ -93,17 +129,17 @@ export class RateLimiterService {
    * 3. Return success/failure with retry time
    *
    * @param domain - The domain to rate limit
-   * @param mode - Fetch mode (http or headless)
+   * @param provider - Provider ID (determines rate limits)
    * @returns Result with allowed flag, remaining tokens, and optional retry time
    */
   async consumeToken(
     domain: string,
-    mode: 'http' | 'headless' | 'flaresolverr',
+    provider: ProviderId,
   ): Promise<RateLimitResult> {
-    const key = this.getKey(domain, mode);
+    const key = this.getKey(domain, provider);
     const now = Date.now();
-    const refillRate = this.getRefillRate(mode);
-    const maxTokens = this.defaultConfig.burstSize;
+    const refillRate = this.getRefillRate(provider);
+    const maxTokens = this.getMaxTokens(provider);
 
     // Lua script for atomic token bucket implementation
     const script = `
@@ -153,7 +189,7 @@ export class RateLimiterService {
 
       if (!allowed) {
         this.logger.debug(
-          `Rate limit exceeded for ${domain} (${mode}), retry after ${retryAfterMs}ms`,
+          `Rate limit exceeded for ${domain} (${provider}), retry after ${retryAfterMs}ms`,
         );
       }
 
@@ -164,13 +200,27 @@ export class RateLimiterService {
       };
     } catch (error) {
       this.logger.error(
-        `Failed to consume token for ${domain} (${mode}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to consume token for ${domain} (${provider}): ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
-      // Fail open - allow request on Redis error
+
+      // Fail-closed for paid providers (cost protection)
+      // Fail-open for free providers (availability)
+      if (this.isPaidProvider(provider)) {
+        this.logger.warn(
+          `[RATE_LIMITER_DEGRADED_PAID] Redis error for paid provider ${provider}@${domain} - BLOCKING request`,
+        );
+        return {
+          allowed: false,
+          remainingTokens: 0,
+          retryAfterMs: 60000, // Wait 1 minute before retry
+        };
+      }
+
+      // Fail open for free providers
       return {
         allowed: true,
-        remainingTokens: this.defaultConfig.burstSize,
+        remainingTokens: maxTokens,
       };
     }
   }
@@ -181,21 +231,21 @@ export class RateLimiterService {
    * Useful for pre-flight checks or status monitoring
    *
    * @param domain - The domain to check
-   * @param mode - Fetch mode (http or headless)
+   * @param provider - Provider ID (determines rate limits)
    * @returns Result with allowed flag, remaining tokens, and optional retry time
    */
   async checkLimit(
     domain: string,
-    mode: 'http' | 'headless' | 'flaresolverr',
+    provider: ProviderId,
   ): Promise<RateLimitResult> {
-    const key = this.getKey(domain, mode);
+    const key = this.getKey(domain, provider);
+    const maxTokens = this.getMaxTokens(provider);
 
     try {
       const data = await this.redis.hmget(key, 'tokens', 'lastRefill');
 
       const now = Date.now();
-      const refillRate = this.getRefillRate(mode);
-      const maxTokens = this.defaultConfig.burstSize;
+      const refillRate = this.getRefillRate(provider);
 
       let tokens = data[0] ? parseFloat(data[0]) : maxTokens;
       const lastRefill = data[1] ? parseInt(data[1], 10) : now;
@@ -215,13 +265,21 @@ export class RateLimiterService {
       };
     } catch (error) {
       this.logger.error(
-        `Failed to check limit for ${domain} (${mode}): ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to check limit for ${domain} (${provider}): ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
-      // Fail open - allow request on Redis error
+
+      // Fail-closed for paid providers, fail-open for free
+      if (this.isPaidProvider(provider)) {
+        return {
+          allowed: false,
+          remainingTokens: 0,
+          retryAfterMs: 60000,
+        };
+      }
       return {
         allowed: true,
-        remainingTokens: this.defaultConfig.burstSize,
+        remainingTokens: maxTokens,
       };
     }
   }

@@ -49,6 +49,10 @@ export interface FetchRequest {
   preferredProvider?: ProviderId;
   // FlareSolverr wait time after challenge (seconds)
   flareSolverrWaitSeconds?: number;
+  // PR4: Domain policy - disabled providers (won't be tried)
+  disabledProviders?: ProviderId[];
+  // PR4: Stop after preferred provider failure (don't try other providers)
+  stopAfterPreferredFailure?: boolean;
 }
 
 export interface FetchResult {
@@ -74,14 +78,17 @@ export interface IFetchProvider {
 }
 
 /**
- * Cost configuration per provider
+ * Cost configuration per provider (PR5: Single source of truth)
+ *
+ * All provider services should use these values.
+ * Prices based on actual provider pricing as of 2026-01.
  */
 export const PROVIDER_COSTS: Record<ProviderId, { perRequest: number; description: string }> = {
   http: { perRequest: 0, description: 'Free HTTP fetch' },
   mobile_ua: { perRequest: 0, description: 'Free mobile UA fetch' },
   headless: { perRequest: 0, description: 'Free headless browser' },
   flaresolverr: { perRequest: 0, description: 'Free FlareSolverr' },
-  brightdata: { perRequest: 0.003, description: 'Bright Data Web Unlocker ~$3/1000' },
+  brightdata: { perRequest: 0.0015, description: 'Bright Data Web Unlocker ~$1.50/1000' },
   scraping_browser: { perRequest: 0.01, description: 'Scraping Browser ~$10/1000' },
   twocaptcha_proxy: { perRequest: 0.0007, description: '2captcha proxy ~$0.70/GB' },
   twocaptcha_datadome: { perRequest: 0.00145, description: '2captcha DataDome ~$1.45/1000' },

@@ -147,31 +147,8 @@ export class RunProcessor extends WorkerHost {
       };
     }
 
-    const rateLimitResult = await this.rateLimiter.consumeToken(
-      domain,
-      fetchModeUsed,
-    );
-
-    if (!rateLimitResult.allowed) {
-      this.logger.warn(
-        `[Job ${job.id}] Rate limit exceeded for ${domain} (${fetchModeUsed}), delaying by ${rateLimitResult.retryAfterMs}ms`,
-      );
-
-      // Delay the job
-      await job.moveToDelayed(Date.now() + (rateLimitResult.retryAfterMs ?? 5000));
-
-      return {
-        delayed: true,
-        retryAfterMs: rateLimitResult.retryAfterMs,
-        reason: 'Domain rate limit exceeded',
-        domain,
-        mode: fetchModeUsed,
-      };
-    }
-
-    this.logger.debug(
-      `[Job ${job.id}] Rate limit check passed for ${domain} (${fetchModeUsed}), ${rateLimitResult.remainingTokens} tokens remaining`,
-    );
+    // NOTE: Rate limiting moved to FetchOrchestrator (PR2)
+    // Each provider now has its own rate limit bucket
 
     // Step 3: Create run record
 
@@ -223,6 +200,9 @@ export class RunProcessor extends WorkerHost {
         // Domain policy fields
         preferredProvider: rule.source.fetchProfile?.preferredProvider as FetchRequest['preferredProvider'],
         flareSolverrWaitSeconds: rule.source.fetchProfile?.flareSolverrWaitSeconds ?? undefined,
+        // PR4: Domain policy - disabled providers and stop behavior
+        disabledProviders: rule.source.fetchProfile?.disabledProviders as FetchRequest['disabledProviders'],
+        stopAfterPreferredFailure: rule.source.fetchProfile?.stopAfterPreferredFailure ?? undefined,
       };
 
       // Build OrchestratorConfig
@@ -258,6 +238,8 @@ export class RunProcessor extends WorkerHost {
           contentHash: fetchHtml.length > 0
             ? createHash('sha256').update(fetchHtml).digest('hex')
             : null,
+          // PR3: Store raw sample for debugging problematic fetches
+          rawSample: orchestratorResult.rawSample ?? null,
         },
       });
 

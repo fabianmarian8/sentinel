@@ -13,6 +13,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { NotificationChannelsModule } from './notification-channels/notification-channels.module';
 import { StatsModule } from './stats/stats.module';
+import { FetchProfilesModule } from './fetch-profiles/fetch-profiles.module';
 import { HttpExceptionFilter } from './common/filters';
 import { LoggingInterceptor } from './common/interceptors';
 
@@ -28,6 +29,7 @@ import { LoggingInterceptor } from './common/interceptors';
     AlertsModule,
     NotificationChannelsModule,
     StatsModule,
+    FetchProfilesModule,
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [{

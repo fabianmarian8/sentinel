@@ -161,6 +161,10 @@ model FetchProfile {
   preferredProvider     FetchProvider? @map("preferred_provider")
   // FlareSolverr wait time after challenge (seconds, default: instant)
   flareSolverrWaitSeconds Int?       @map("flaresolverr_wait_seconds")
+  // PR4: Disabled providers (won't be tried for this profile)
+  disabledProviders     FetchProvider[] @default([]) @map("disabled_providers")
+  // PR4: Stop after preferred provider failure (don't try other providers)
+  stopAfterPreferredFailure Boolean @default(false) @map("stop_after_preferred_failure")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
