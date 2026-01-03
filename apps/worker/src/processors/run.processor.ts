@@ -70,6 +70,24 @@ export class RunProcessor extends WorkerHost {
     super();
   }
 
+  /**
+   * Map provider name to FetchMode enum for DB storage
+   */
+  private mapProviderToFetchMode(provider: string): FetchMode {
+    switch (provider) {
+      case 'http':
+      case 'mobile_ua':
+        return 'http';
+      case 'headless':
+      case 'scraping_browser':
+        return 'headless';
+      case 'flaresolverr':
+        return 'flaresolverr';
+      default:
+        return 'http';
+    }
+  }
+
   @OnWorkerEvent('active')
   onActive(job: Job) {
     this.logger.log(`[Job ${job.id}] Processing started`);
@@ -215,24 +233,24 @@ export class RunProcessor extends WorkerHost {
 
       // Extract HTML from result
       const fetchHtml = orchestratorResult.html || '';
-      const fetchModeUsed = orchestratorResult.final.provider;
+      const providerUsed = orchestratorResult.final.provider;
       const httpStatus = orchestratorResult.final.httpStatus;
       const paidTierUsed = orchestratorConfig.allowPaid && (
-        fetchModeUsed === 'brightdata' ||
-        fetchModeUsed === 'scraping_browser' ||
-        fetchModeUsed === 'twocaptcha_proxy' ||
-        fetchModeUsed === 'twocaptcha_datadome'
+        providerUsed === 'brightdata' ||
+        providerUsed === 'scraping_browser' ||
+        providerUsed === 'twocaptcha_proxy' ||
+        providerUsed === 'twocaptcha_datadome'
       );
 
       // Step 5: Update run with fetch results
       await this.prisma.run.update({
         where: { id: run.id },
         data: {
-          fetchModeUsed: 'http', // Map to FetchMode enum (http, headless, flaresolverr)
+          fetchModeUsed: this.mapProviderToFetchMode(providerUsed),
           httpStatus: httpStatus,
           errorCode: orchestratorResult.final.outcome !== 'ok' ? orchestratorResult.final.outcome.toUpperCase() : null,
           errorDetail: orchestratorResult.final.errorDetail ??
-            (paidTierUsed ? `Paid tier used: ${fetchModeUsed}` : undefined),
+            (paidTierUsed ? `Paid tier used: ${providerUsed}` : undefined),
           blockDetected: orchestratorResult.final.outcome === 'blocked',
           contentHash: fetchHtml.length > 0
             ? createHash('sha256').update(fetchHtml).digest('hex')
@@ -241,7 +259,7 @@ export class RunProcessor extends WorkerHost {
       });
 
       this.logger.log(
-        `[Job ${job.id}] Fetch completed via ${fetchModeUsed} (${orchestratorResult.attempts.length} attempts, $${orchestratorResult.final.costUsd.toFixed(4)})`,
+        `[Job ${job.id}] Fetch completed via ${providerUsed} (${orchestratorResult.attempts.length} attempts, $${orchestratorResult.final.costUsd.toFixed(4)})`,
       );
 
       // Handle fetch failure - if orchestrator couldn't fetch HTML, abort
