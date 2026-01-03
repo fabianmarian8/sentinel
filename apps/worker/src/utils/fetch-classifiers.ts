@@ -7,6 +7,11 @@
 
 import { BlockKind, FetchOutcome } from '../types/fetch-result';
 
+/**
+ * Minimum body size in bytes to consider a response valid
+ */
+export const MIN_BODY_BYTES = 2000;
+
 export interface EmptyClassification {
   isEmpty: boolean;
   signals: string[];
@@ -31,12 +36,18 @@ export function classifyEmpty(
   const bytes = Buffer.byteLength(text, 'utf8');
 
   // Rule 1: Body too small for HTML
-  if (bytes < 2000) {
+  if (bytes < MIN_BODY_BYTES) {
     signals.push('body_too_small');
     return { isEmpty: true, signals };
   }
 
-  // Rule 2: Missing basic HTML markers
+  // Rule 2: JSON error responses disguised as HTML (check before HTML markers)
+  if (contentType?.includes('text/html') && text.trim().startsWith('{') && text.includes('"error"')) {
+    signals.push('json_error_in_html');
+    return { isEmpty: true, signals };
+  }
+
+  // Rule 3: Missing basic HTML markers
   if (contentType?.includes('text/html')) {
     const lower = text.toLowerCase();
     if (!lower.includes('<html') && !lower.includes('<body') && !lower.includes('<!doctype')) {
@@ -45,16 +56,10 @@ export function classifyEmpty(
     }
   }
 
-  // Rule 3: Suspicious placeholder patterns
+  // Rule 4: Suspicious placeholder patterns
   const lower = text.toLowerCase();
   if (lower.includes('loading...') && bytes < 5000) {
     signals.push('loading_placeholder');
-    return { isEmpty: true, signals };
-  }
-
-  // Rule 4: JSON error responses disguised as HTML
-  if (contentType?.includes('text/html') && text.trim().startsWith('{') && text.includes('"error"')) {
-    signals.push('json_error_in_html');
     return { isEmpty: true, signals };
   }
 

@@ -20,6 +20,20 @@ describe('fetch-classifiers', () => {
       expect(result.isEmpty).toBe(true);
       expect(result.signals).toContain('missing_html_markers');
     });
+
+    it('should detect loading placeholder', () => {
+      const html = '<html><body>Loading...' + 'x'.repeat(3000) + '</body></html>';
+      const result = classifyEmpty(html, 'text/html');
+      expect(result.isEmpty).toBe(true);
+      expect(result.signals).toContain('loading_placeholder');
+    });
+
+    it('should detect JSON error in HTML', () => {
+      const json = '{"error": "Not Found", "message": "Resource does not exist", "data": "' + 'x'.repeat(3000) + '"}';
+      const result = classifyEmpty(json, 'text/html');
+      expect(result.isEmpty).toBe(true);
+      expect(result.signals).toContain('json_error_in_html');
+    });
   });
 
   describe('classifyBlock', () => {
@@ -35,6 +49,38 @@ describe('fetch-classifiers', () => {
       const result = classifyBlock(html);
       expect(result.isBlocked).toBe(true);
       expect(result.kind).toBe('cloudflare');
+    });
+
+    it('should detect PerimeterX', () => {
+      const html = '<html><body><div id="_pxhd">PerimeterX protection active</div></body></html>';
+      const result = classifyBlock(html);
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('perimeterx');
+      expect(result.signals).toContain('perimeterx_detected');
+    });
+
+    it('should detect CAPTCHA', () => {
+      const html = '<html><body><div class="g-recaptcha">Please verify you are not a robot</div></body></html>';
+      const result = classifyBlock(html);
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('captcha');
+      expect(result.signals).toContain('captcha_detected');
+    });
+
+    it('should detect rate limit', () => {
+      const html = '<html><body><h1>Too many requests - Rate limit exceeded</h1></body></html>';
+      const result = classifyBlock(html);
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('rate_limit');
+      expect(result.signals).toContain('rate_limit_detected');
+    });
+
+    it('should detect unknown/generic block', () => {
+      const html = '<html><body><h1>Access Denied</h1><p>You are blocked from accessing this resource.</p></body></html>';
+      const result = classifyBlock(html);
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('unknown');
+      expect(result.signals).toContain('generic_block_detected');
     });
 
     it('should pass clean HTML', () => {
@@ -63,9 +109,22 @@ describe('fetch-classifiers', () => {
       expect(result.blockKind).toBe('datadome');
     });
 
+    it('should return captcha_required for CAPTCHA', () => {
+      const html = '<html><body>Please solve this recaptcha</body></html>' + 'x'.repeat(3000);
+      const result = determineFetchOutcome(200, html, 'text/html');
+      expect(result.outcome).toBe('captcha_required');
+      expect(result.blockKind).toBe('captcha');
+    });
+
     it('should return timeout for timeout error', () => {
       const result = determineFetchOutcome(undefined, undefined, undefined, 'Request timeout ETIMEDOUT');
       expect(result.outcome).toBe('timeout');
+    });
+
+    it('should return network_error for connection errors', () => {
+      const result = determineFetchOutcome(undefined, undefined, undefined, 'Connection refused ECONNREFUSED');
+      expect(result.outcome).toBe('network_error');
+      expect(result.signals).toContain('network_error');
     });
   });
 });
