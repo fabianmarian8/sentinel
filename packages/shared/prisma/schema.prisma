@@ -33,6 +33,36 @@ enum FetchMode {
   flaresolverr
 }
 
+enum FetchOutcome {
+  ok
+  blocked
+  captcha_required
+  empty
+  timeout
+  network_error
+  provider_error
+}
+
+enum FetchProvider {
+  http
+  mobile_ua
+  headless
+  flaresolverr
+  brightdata
+  scraping_browser
+  twocaptcha_proxy
+  twocaptcha_datadome
+}
+
+enum BlockKind {
+  cloudflare
+  datadome
+  perimeterx
+  captcha
+  rate_limit
+  unknown
+}
+
 enum RuleType {
   price
   availability
@@ -283,4 +313,50 @@ model NotificationChannel {
   @@index([workspaceId])
   @@index([type, enabled])
   @@map("notification_channels")
+}
+
+model FetchAttempt {
+  id            String        @id @default(cuid())
+  workspaceId   String        @map("workspace_id")
+  ruleId        String?       @map("rule_id")
+  url           String
+  hostname      String
+  provider      FetchProvider
+  outcome       FetchOutcome
+  blockKind     BlockKind?    @map("block_kind")
+  httpStatus    Int?          @map("http_status")
+  finalUrl      String?       @map("final_url")
+  bodyBytes     Int           @map("body_bytes")
+  contentType   String?       @map("content_type")
+  latencyMs     Int?          @map("latency_ms")
+  signalsJson   Json?         @map("signals_json")
+  errorDetail   String?       @map("error_detail")
+  costUsd       Float         @default(0) @map("cost_usd")
+  costUnits     Float?        @map("cost_units")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@index([workspaceId, hostname, createdAt])
+  @@index([workspaceId, provider, createdAt])
+  @@index([ruleId, createdAt])
+  @@index([hostname, outcome, createdAt])
+  @@map("fetch_attempts")
+}
+
+model DomainStats {
+  id              String    @id @default(cuid())
+  workspaceId     String    @map("workspace_id")
+  hostname        String
+  date            DateTime  @db.Date
+  attempts        Int       @default(0)
+  okCount         Int       @default(0) @map("ok_count")
+  blockedCount    Int       @default(0) @map("blocked_count")
+  emptyCount      Int       @default(0) @map("empty_count")
+  timeoutCount    Int       @default(0) @map("timeout_count")
+  costUsd         Float     @default(0) @map("cost_usd")
+  avgLatencyMs    Int?      @map("avg_latency_ms")
+  byProviderJson  Json?     @map("by_provider_json")
+
+  @@unique([workspaceId, hostname, date])
+  @@index([workspaceId, date])
+  @@map("domain_stats")
 }
