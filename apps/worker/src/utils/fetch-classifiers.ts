@@ -76,15 +76,15 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
 
   // DataDome CAPTCHA page detection
   // Note: 'datadome' in cookies/scripts is normal on protected pages
-  // Only detect actual CAPTCHA challenge pages
+  // Only detect actual CAPTCHA challenge pages with specific URLs/text
+  // Do NOT use bare 'captcha' matches - too many false positives from JS config
   if (
     lower.includes('geo.captcha-delivery.com') ||
     lower.includes('captcha-delivery.com/captcha') ||
     lower.includes('posunutím doprava zložte puzzle') ||  // Slovak
     lower.includes('slide to complete the puzzle') ||    // English
     lower.includes('nie s robotom') ||                   // Slovak "not a robot"
-    lower.includes('press & hold') ||                    // DataDome press & hold
-    (lower.includes('datadome') && lower.includes('captcha') && !lower.includes('disableautorefreshoncaptchapassed'))
+    lower.includes('press & hold')                       // DataDome press & hold
   ) {
     signals.push('datadome_detected');
     return { isBlocked: true, kind: 'datadome', confidence: 0.95, signals };
@@ -112,9 +112,10 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
   }
 
   // Generic CAPTCHA detection
-  // Exclude 'captcha' in JavaScript config (disableAutoRefreshOnCaptchaPassed)
+  // IMPORTANT: Do NOT match bare 'captcha' - too many false positives from JS config
+  // (Etsy has 'CaptchaPassed', 'disableAutoRefreshOnCaptchaPassed' in their JS)
+  // Only match specific CAPTCHA service patterns
   const hasCaptchaPage = (
-    (lower.includes('captcha') && !lower.includes('disableautorefreshoncaptchapassed')) ||
     lower.includes('i am not a robot') ||
     lower.includes('recaptcha') ||
     lower.includes('hcaptcha') ||
