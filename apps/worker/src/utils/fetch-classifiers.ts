@@ -111,10 +111,22 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
     return { isBlocked: true, kind: 'perimeterx', confidence: 0.9, signals };
   }
 
-  // Generic CAPTCHA detection
-  // IMPORTANT: Do NOT match bare 'captcha' - too many false positives from JS config
-  // (Etsy has 'CaptchaPassed', 'disableAutoRefreshOnCaptchaPassed' in their JS)
-  // Only match specific CAPTCHA service patterns
+  // Generic CAPTCHA detection - only for small pages (actual CAPTCHA challenge pages)
+  // Large pages (>100KB) with product content that happen to have a captcha widget
+  // (e.g., Etsy "contact seller" form has g-recaptcha) are NOT blocked
+  const bytes = Buffer.byteLength(text, 'utf8');
+  const hasProductContent =
+    lower.includes('add to cart') ||
+    lower.includes('buy now') ||
+    lower.includes('price') ||
+    lower.includes('product');
+
+  // If large page with product content, skip CAPTCHA detection
+  if (bytes > 100000 && hasProductContent) {
+    // Not a CAPTCHA block page - it's a real product page with an optional captcha widget
+    return { isBlocked: false, kind: 'unknown', confidence: 0, signals };
+  }
+
   const hasCaptchaPage = (
     lower.includes('i am not a robot') ||
     lower.includes('recaptcha') ||
@@ -137,14 +149,17 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
     return { isBlocked: true, kind: 'rate_limit', confidence: 0.9, signals };
   }
 
-  // Generic block detection
-  if (
-    lower.includes('access denied') ||
-    lower.includes('blocked') ||
-    lower.includes('forbidden')
-  ) {
-    signals.push('generic_block_detected');
-    return { isBlocked: true, kind: 'unknown', confidence: 0.7, signals };
+  // Generic block detection - only for small pages (<10KB)
+  // Large pages with "blocked" in JS code (e.g., DD_BLOCKED_EVENT_NAME) are not actual blocks
+  if (bytes < 10000) {
+    if (
+      lower.includes('access denied') ||
+      lower.includes('blocked') ||
+      lower.includes('forbidden')
+    ) {
+      signals.push('generic_block_detected');
+      return { isBlocked: true, kind: 'unknown', confidence: 0.7, signals };
+    }
   }
 
   return { isBlocked: false, kind: 'unknown', confidence: 0, signals };
