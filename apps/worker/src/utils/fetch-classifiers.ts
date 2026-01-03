@@ -74,12 +74,17 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
   const lower = text.toLowerCase();
   const signals: string[] = [];
 
-  // DataDome detection
+  // DataDome CAPTCHA page detection
+  // Note: 'datadome' in cookies/scripts is normal on protected pages
+  // Only detect actual CAPTCHA challenge pages
   if (
-    lower.includes('datadome') ||
-    lower.includes('captcha-delivery.com') ||
-    lower.includes('dd_') ||
-    lower.includes('geo.captcha-delivery.com')
+    lower.includes('geo.captcha-delivery.com') ||
+    lower.includes('captcha-delivery.com/captcha') ||
+    lower.includes('posunutím doprava zložte puzzle') ||  // Slovak
+    lower.includes('slide to complete the puzzle') ||    // English
+    lower.includes('nie s robotom') ||                   // Slovak "not a robot"
+    lower.includes('press & hold') ||                    // DataDome press & hold
+    (lower.includes('datadome') && lower.includes('captcha') && !lower.includes('disableautorefreshoncaptchapassed'))
   ) {
     signals.push('datadome_detected');
     return { isBlocked: true, kind: 'datadome', confidence: 0.95, signals };
