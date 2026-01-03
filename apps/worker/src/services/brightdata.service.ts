@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PROVIDER_COSTS } from '../types/fetch-result';
+import { classifyBlock } from '../utils/fetch-classifiers';
 
 /**
  * Bright Data Web Unlocker Integration
@@ -230,74 +231,27 @@ export class BrightDataService {
    * Check if HTML indicates content is blocked (DataDome, Cloudflare, etc.)
    * Used to verify if bypass was successful.
    *
-   * NOTE: This uses the same two-tier architecture as fetch-classifiers.ts:
-   * - Tier 1: Precise signatures (always checked)
-   * - Tier 2: Heuristics (size-gated)
+   * DELEGATES TO: classifyBlock() from fetch-classifiers.ts
+   * This ensures consistent block detection across all providers.
    *
    * @param html - The HTML content to check
-   * @param hasDataDomeHeader - Whether x-datadome: protected header was present
+   * @param hasDataDomeHeader - Whether x-datadome: protected header was present (legacy, unused)
    * @returns Object with blocked status and reason
    */
-  isBlocked(html: string, hasDataDomeHeader = false): { blocked: boolean; reason: string } {
+  isBlocked(html: string, _hasDataDomeHeader = false): { blocked: boolean; reason: string } {
     if (!html) {
       return { blocked: true, reason: 'Empty response' };
     }
 
-    const htmlLower = html.toLowerCase();
-    const bytes = html.length;
+    // Delegate to unified classifier - single source of truth
+    const result = classifyBlock(html);
 
-    // ============================================================
-    // TIER 1: PRECISE SIGNATURES (always on, any page size)
-    // ============================================================
-
-    // DataDome - specific delivery URLs (highest precision)
-    if (
-      htmlLower.includes('geo.captcha-delivery.com') ||
-      htmlLower.includes('captcha-delivery.com/captcha')
-    ) {
-      return { blocked: true, reason: 'DataDome CAPTCHA delivery URL' };
-    }
-
-    // DataDome - specific challenge text
-    if (
-      htmlLower.includes('posunutím doprava zložte puzzle') ||
-      htmlLower.includes('slide to complete the puzzle') ||
-      htmlLower.includes('press & hold')
-    ) {
-      return { blocked: true, reason: 'DataDome challenge text' };
-    }
-
-    // Cloudflare - specific verification attribute
-    if (htmlLower.includes('cf-browser-verification')) {
-      return { blocked: true, reason: 'Cloudflare verification' };
-    }
-
-    // ============================================================
-    // TIER 2: HEURISTICS (size-gated)
-    // ============================================================
-
-    // Check for schema.org Product JSON-LD (reliable product page indicator)
-    const hasProductSchema = /"@type"\s*:\s*(\[\s*)?["']?Product["']?/i.test(html);
-    const isLargePage = bytes > 50000;
-
-    // Skip heuristics for large product pages
-    if (isLargePage && hasProductSchema) {
-      return { blocked: false, reason: '' };
-    }
-
-    // x-datadome header check - only for non-product pages
-    if (hasDataDomeHeader && !hasProductSchema && bytes < 100000) {
-      return { blocked: true, reason: 'DataDome header + no product schema' };
-    }
-
-    // Traditional block patterns (small pages only)
-    if (bytes < 10000) {
-      if (htmlLower.includes('access denied')) {
-        return { blocked: true, reason: 'Access denied' };
-      }
-      if (htmlLower.includes('checking your browser') && htmlLower.includes('cloudflare')) {
-        return { blocked: true, reason: 'Cloudflare challenge' };
-      }
+    if (result.isBlocked) {
+      // Map classifier signals to human-readable reason
+      const reason = result.signals.length > 0
+        ? result.signals[0].replace(/_/g, ' ')
+        : `${result.kind} detected`;
+      return { blocked: true, reason };
     }
 
     return { blocked: false, reason: '' };

@@ -42,7 +42,66 @@ describe('fetch-classifiers', () => {
     });
 
     it('detects Product in array syntax', () => {
-      const html = `{"@type": ["Product", "SomeOther"]}`;
+      const html = `
+        <script type="application/ld+json">
+        {"@type": ["Product", "SomeOther"]}
+        </script>
+      `;
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+    });
+
+    it('detects Product in @graph structure', () => {
+      const html = `
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@graph": [
+            {"@type": "WebPage", "name": "Page"},
+            {"@type": "Product", "name": "Widget", "sku": "123"}
+          ]
+        }
+        </script>
+      `;
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+    });
+
+    it('detects Product across multiple script blocks', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "Organization", "name": "Acme"}
+        </script>
+        <script type="application/ld+json">
+        {"@type": "Product", "name": "Widget"}
+        </script>
+      `;
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+    });
+
+    it('detects commerce via offers field (without explicit Product type)', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "WebPage", "offers": {"@type": "Offer", "price": "29.99"}}
+        </script>
+      `;
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+    });
+
+    it('falls back to regex for broken JSON-LD (trailing comma)', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "Product", "name": "Widget",}
+        </script>
+      `;
+      // JSON.parse will fail, but regex fallback should catch it
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+    });
+
+    it('detects ItemList (product listings)', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "ItemList", "itemListElement": []}
+        </script>
+      `;
       expect(hasSchemaOrgProduct(html)).toBe(true);
     });
 
@@ -59,6 +118,90 @@ describe('fetch-classifiers', () => {
 
     it('returns false for pages without @type', () => {
       expect(hasSchemaOrgProduct('<html><body>Hello</body></html>')).toBe(false);
+    });
+  });
+
+  describe('GUARDRAIL: Tier 1 signatures ALWAYS win regardless of page size', () => {
+    it('blocks large DataDome interstitial (200KB) despite size', () => {
+      // Large page with DataDome CAPTCHA signature - Tier 1 MUST fire
+      const padding = 'x'.repeat(200000);
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head><title>Security Check</title></head>
+        <body>
+          ${padding}
+          <iframe src="https://geo.captcha-delivery.com/captcha/?id=123"></iframe>
+          <p>Please complete the security check</p>
+        </body>
+        </html>
+      `;
+      const result = classifyBlock(html);
+
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('datadome');
+      expect(result.signals).toContain('datadome_url_signature');
+    });
+
+    it('blocks large Cloudflare challenge page despite size', () => {
+      const padding = 'x'.repeat(100000);
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <body class="cf-browser-verification">
+          ${padding}
+          <h1>Checking your browser...</h1>
+        </body>
+        </html>
+      `;
+      const result = classifyBlock(html);
+
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('cloudflare');
+      expect(result.signals).toContain('cloudflare_verification_signature');
+    });
+
+    it('blocks PerimeterX even on large page', () => {
+      const padding = 'x'.repeat(150000);
+      const html = `
+        <html>
+        <body>
+          ${padding}
+          <div id="px-captcha">Verify</div>
+        </body>
+        </html>
+      `;
+      const result = classifyBlock(html);
+
+      expect(result.isBlocked).toBe(true);
+      expect(result.kind).toBe('perimeterx');
+    });
+  });
+
+  describe('GUARDRAIL: Broken JSON-LD does not cause false negatives', () => {
+    it('detects product via regex when JSON-LD has HTML entities', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "Product", "name": "Widget &amp; Gadget"}
+        </script>
+      ` + 'x'.repeat(60000);
+
+      // The &amp; makes it invalid JSON, but regex should still detect Product
+      expect(hasSchemaOrgProduct(html)).toBe(true);
+
+      // And therefore should skip heuristics on this large page
+      const result = classifyBlock(html);
+      expect(result.isBlocked).toBe(false);
+    });
+
+    it('detects product via regex when JSON-LD has unescaped quotes', () => {
+      const html = `
+        <script type="application/ld+json">
+        {"@type": "Product", "description": "The "best" widget"}
+        </script>
+      ` + 'x'.repeat(60000);
+
+      expect(hasSchemaOrgProduct(html)).toBe(true);
     });
   });
 

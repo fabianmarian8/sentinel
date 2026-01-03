@@ -48,22 +48,163 @@ export interface BlockClassification {
 }
 
 /**
- * Detect schema.org Product JSON-LD in page content.
- * This is the reliable way to detect e-commerce product pages.
+ * Commerce-related schema.org types that indicate legitimate e-commerce content.
+ * Used to distinguish real product pages from block/CAPTCHA interstitials.
+ */
+const COMMERCE_SCHEMA_TYPES = new Set([
+  'product',
+  'productmodel',
+  'productgroup',
+  'offer',
+  'aggregateoffer',
+  'itemlist',  // Often used for product listings
+]);
+
+/**
+ * Detect schema.org commerce-related JSON-LD in page content.
+ * This is the reliable way to detect e-commerce pages.
  *
- * Looks for patterns like:
- * - "@type": "Product"
- * - "@type":"Product"
- * - "@type": ["Product", ...]
+ * Handles real-world edge cases:
+ * - @graph wrapper structure
+ * - Multiple <script type="application/ld+json"> blocks
+ * - Invalid JSON (falls back to regex)
+ * - Nested objects with @type
+ * - Array types: "@type": ["Product", "SomeOther"]
+ *
+ * Performance: Short-circuits on first match, max 10 JSON-LD blocks,
+ * max 5 recursion depth to prevent CPU issues on malformed pages.
  */
 export function hasSchemaOrgProduct(text: string): boolean {
   // Fast check - if no @type, definitely no schema.org
   if (!text.includes('@type')) return false;
 
-  // Match @type with Product (with or without spaces, quotes variations)
-  // Handles: "@type": "Product", "@type":"Product", "@type": ["Product", ...]
-  const productPattern = /"@type"\s*:\s*(\[\s*)?["']?Product["']?/i;
-  return productPattern.test(text);
+  // Extract all <script type="application/ld+json"> blocks
+  const jsonLdBlocks = extractJsonLdBlocks(text);
+
+  // Try to parse each block and check for commerce types
+  for (const block of jsonLdBlocks.slice(0, 10)) { // Max 10 blocks
+    if (parseAndCheckCommerceType(block)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Extract JSON-LD script blocks from HTML.
+ * Uses regex to avoid full HTML parsing overhead.
+ */
+function extractJsonLdBlocks(html: string): string[] {
+  const blocks: string[] = [];
+  // Match <script type="application/ld+json">...</script>
+  // Non-greedy, case-insensitive
+  const regex = /<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    if (match[1]) {
+      blocks.push(match[1].trim());
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Parse JSON-LD block and check for commerce types.
+ * Falls back to regex if JSON parsing fails (common with malformed JSON-LD).
+ */
+function parseAndCheckCommerceType(jsonStr: string): boolean {
+  try {
+    const parsed = JSON.parse(jsonStr);
+    return checkObjectForCommerceType(parsed, 0);
+  } catch {
+    // JSON parse failed - fall back to regex
+    // This handles trailing commas, HTML entities, etc.
+    return regexCheckCommerceType(jsonStr);
+  }
+}
+
+/**
+ * Recursively check parsed JSON-LD for commerce types.
+ * Handles @graph, arrays, and nested objects.
+ */
+function checkObjectForCommerceType(obj: unknown, depth: number): boolean {
+  // Prevent stack overflow on deeply nested/malformed data
+  if (depth > 5) return false;
+  if (obj === null || typeof obj !== 'object') return false;
+
+  // Handle arrays (including @graph arrays)
+  if (Array.isArray(obj)) {
+    for (const item of obj.slice(0, 20)) { // Max 20 items per array
+      if (checkObjectForCommerceType(item, depth + 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const record = obj as Record<string, unknown>;
+
+  // Check @type field
+  const typeField = record['@type'];
+  if (typeField) {
+    if (isCommerceType(typeField)) {
+      return true;
+    }
+  }
+
+  // Check @graph (common wrapper structure)
+  if (record['@graph']) {
+    if (checkObjectForCommerceType(record['@graph'], depth + 1)) {
+      return true;
+    }
+  }
+
+  // Check offers field (indicates product context even without Product @type)
+  if (record['offers']) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Check if @type value is a commerce type.
+ * Handles string, array of strings, or nested structures.
+ */
+function isCommerceType(typeValue: unknown): boolean {
+  if (typeof typeValue === 'string') {
+    return COMMERCE_SCHEMA_TYPES.has(typeValue.toLowerCase());
+  }
+
+  if (Array.isArray(typeValue)) {
+    return typeValue.some(t =>
+      typeof t === 'string' && COMMERCE_SCHEMA_TYPES.has(t.toLowerCase())
+    );
+  }
+
+  return false;
+}
+
+/**
+ * Regex fallback for malformed JSON-LD.
+ * Less precise but catches common patterns in broken JSON.
+ */
+function regexCheckCommerceType(jsonStr: string): boolean {
+  const lower = jsonStr.toLowerCase();
+
+  // Check for common commerce @type patterns
+  // Handles: "@type": "Product", "@type":"product", "@type": ["Product", ...]
+  const patterns = [
+    /"@type"\s*:\s*"product/i,
+    /"@type"\s*:\s*\[\s*"product/i,
+    /"@type"\s*:\s*"offer/i,
+    /"@type"\s*:\s*"itemlist/i,
+  ];
+
+  return patterns.some(p => p.test(jsonStr));
 }
 
 /**
