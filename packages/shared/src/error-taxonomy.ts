@@ -151,6 +151,13 @@ export const ERROR_TAXONOMY: Record<ErrorCode, ErrorInfo> = {
     severity: 'warning',
     retryable: false,
   },
+  EXTRACT_SCHEMA_NOT_FOUND: {
+    title: 'No Schema Data',
+    description: 'No schema.org JSON-LD or OpenGraph price data found.',
+    recommendation: 'The website may not use structured data. Try CSS selector instead.',
+    severity: 'error',
+    retryable: false,
+  },
   EXTRACT_UNSTABLE: {
     title: 'Unstable Extraction',
     description: 'The extracted value changes frequently.',

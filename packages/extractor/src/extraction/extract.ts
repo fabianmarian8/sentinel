@@ -1,8 +1,9 @@
-import { ExtractionConfig } from '@sentinel/shared';
+import { ExtractionConfig, SchemaQuery } from '@sentinel/shared';
 import { ExtractionResult } from './types';
 import { extractWithCSS } from './css';
 import { extractWithXPath } from './xpath';
 import { extractWithRegex } from './regex';
+import { extractWithSchema } from './schema';
 import { applyPostprocess } from './postprocess';
 
 /**
@@ -71,6 +72,19 @@ function extractWithMethod(
     case 'regex':
       // Regex doesn't support attribute or context
       return extractWithRegex(html, selector);
+
+    case 'schema': {
+      // Schema extraction uses selector as JSON query config
+      // Format: {"kind":"price","prefer":"low"} or {"kind":"availability"}
+      try {
+        const query: SchemaQuery = JSON.parse(selector);
+        const result = extractWithSchema(html, query);
+        return result.success ? result.rawValue : null;
+      } catch {
+        // Invalid selector format for schema
+        return null;
+      }
+    }
 
     // jsonpath removed - blocked at API validation level
 

@@ -202,6 +202,7 @@ model Rule {
   ruleType           RuleType  @map("rule_type")
   extraction         Json      // selector, jsonPath, regex config
   selectorFingerprint Json?    @map("selector_fingerprint") // auto-healing: alternativeSelectors, textAnchor, parentContext
+  schemaFingerprint   Json?    @map("schema_fingerprint") // schema.org drift detection: shapeHash, schemaTypes
   normalization      Json?     // transform, unit conversion config
   schedule           Json      // cron, interval config
   alertPolicy        Json?     @map("alert_policy") // thresholds, conditions

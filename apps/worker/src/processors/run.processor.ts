@@ -23,6 +23,8 @@ import {
   SCREENSHOT_PADDING_PX,
   extractWithHealing,
   createSelectorFingerprint,
+  extractWithSchema,
+  detectSchemaDrift,
   type SelectorFingerprint,
   type HealingResult,
 } from '@sentinel/extractor';
@@ -33,6 +35,8 @@ import type {
   AlertPolicy,
   RuleType,
   FetchMode,
+  SchemaQuery,
+  SchemaFingerprint,
 } from '@sentinel/shared';
 import { normalizeValue } from '../utils/normalize-value';
 import { detectChange } from '../utils/change-detection';
@@ -301,124 +305,194 @@ export class RunProcessor extends WorkerHost {
         }
       }
 
-      // Step 6: Extract value with auto-healing (use fetchHtml which may be from TieredFetch)
+      // Step 6: Extract value
+      // Branch based on extraction method: schema uses entity-based extraction, others use healing
       const storedFingerprint = rule.selectorFingerprint as SelectorFingerprint | null;
+      const storedSchemaFingerprint = rule.schemaFingerprint as SchemaFingerprint | null;
 
-      // Use new healing module for extraction with fallbacks and fingerprint matching
-      const healingResult = await extractWithHealing(fetchHtml, {
-        selector: extraction.selector,
-        method: extraction.method as 'css' | 'xpath',
-        attribute: extraction.attribute,
-        fallbackSelectors: [
-          // Include extraction fallbacks
-          ...(extraction.fallbackSelectors?.map((f: any) => f.selector) || []),
-          // Include fingerprint alternatives
-          ...(storedFingerprint?.alternativeSelectors || []),
-        ],
-        storedFingerprint: storedFingerprint || undefined,
-        similarityThreshold: 0.6,
-        textAnchor: storedFingerprint?.textAnchor,
-        generateFingerprint: true,
-      });
-
-      // Convert healing result to extraction result format
-      const extractResult = {
-        success: healingResult.success,
-        value: healingResult.value,
-        selectorUsed: healingResult.selectorUsed,
-        fallbackUsed: healingResult.healed,
-        error: healingResult.error,
+      let extractResult: {
+        success: boolean;
+        value: string | null;
+        selectorUsed: string;
+        fallbackUsed: boolean;
+        error?: string;
       };
-      const selectorHealed = healingResult.healed;
-      const healedSelector = healingResult.healed ? healingResult.selectorUsed : null;
+      let selectorHealed = false;
+      let healedSelector: string | null = null;
+      let schemaExtractMeta: any = null;
 
-      // Log healing method
-      if (healingResult.success) {
-        if (healingResult.healingMethod === 'fingerprint') {
-          this.logger.log(
-            `[Job ${job.id}] Auto-healed via fingerprint matching: ${healingResult.selectorUsed} (similarity: ${((healingResult.similarity || 0) * 100).toFixed(0)}%)`,
-          );
-        } else if (healingResult.healingMethod === 'fallback') {
-          this.logger.log(
-            `[Job ${job.id}] Auto-healed via fallback selector: ${healingResult.selectorUsed}`,
-          );
-        }
-      }
-
-      // If healed, update rule with new selector and fingerprint
-      if (selectorHealed && healedSelector) {
+      if (extraction.method === 'schema') {
+        // Schema extraction: entity-based, no selector healing needed
         try {
-          const newExtraction = { ...extraction, selector: healedSelector };
+          const schemaQuery: SchemaQuery = JSON.parse(extraction.selector);
+          const schemaResult = extractWithSchema(fetchHtml, schemaQuery);
 
-          // Generate updated fingerprint with healing history
-          const newFingerprint = createSelectorFingerprint(
-            fetchHtml,
-            healedSelector,
-            healingResult.value || '',
-            storedFingerprint || undefined,
-          );
+          extractResult = {
+            success: schemaResult.success,
+            value: schemaResult.rawValue,
+            selectorUsed: extraction.selector,
+            fallbackUsed: false,
+            error: schemaResult.error,
+          };
+          schemaExtractMeta = schemaResult.meta;
 
-          // Add to healing history
-          if (!newFingerprint.healingHistory) {
-            newFingerprint.healingHistory = [];
+          // Check for schema drift if we have stored fingerprint
+          if (schemaResult.success && schemaResult.meta?.fingerprint && storedSchemaFingerprint) {
+            const drift = detectSchemaDrift(storedSchemaFingerprint, schemaResult.meta.fingerprint);
+            if (drift.drifted) {
+              this.logger.warn(
+                `[Job ${job.id}] Schema drift detected: ${drift.reason}`,
+              );
+            }
           }
-          newFingerprint.healingHistory.push({
-            timestamp: new Date().toISOString(),
-            oldSelector: extraction.selector,
-            newSelector: healedSelector,
-            similarity: healingResult.similarity || 0,
-          });
 
-          await this.prisma.rule.update({
-            where: { id: ruleId },
-            data: {
-              extraction: newExtraction as any,
-              selectorFingerprint: newFingerprint as any,
-              lastErrorCode: null,
-              lastErrorAt: null,
-            },
-          });
-
-          this.logger.log(
-            `[Job ${job.id}] Rule ${ruleId} auto-healed: ${extraction.selector} → ${healedSelector}`,
-          );
-        } catch (updateError) {
-          this.logger.warn(
-            `[Job ${job.id}] Failed to persist auto-healed selector: ${updateError}`,
-          );
+          // Update schema fingerprint on success
+          if (schemaResult.success && schemaResult.meta?.fingerprint) {
+            try {
+              await this.prisma.rule.update({
+                where: { id: ruleId },
+                data: {
+                  schemaFingerprint: schemaResult.meta.fingerprint as any,
+                },
+              });
+              this.logger.debug(
+                `[Job ${job.id}] Updated schema fingerprint for rule ${ruleId}`,
+              );
+            } catch {
+              // Non-critical - don't fail the job
+            }
+          }
+        } catch (parseError) {
+          extractResult = {
+            success: false,
+            value: null,
+            selectorUsed: extraction.selector,
+            fallbackUsed: false,
+            error: `Invalid schema query: ${parseError}`,
+          };
         }
-      }
+      } else {
+        // CSS/XPath: Use healing module for extraction with fallbacks
+        const healingResult = await extractWithHealing(fetchHtml, {
+          selector: extraction.selector,
+          method: extraction.method as 'css' | 'xpath',
+          attribute: extraction.attribute,
+          fallbackSelectors: [
+            // Include extraction fallbacks
+            ...(extraction.fallbackSelectors?.map((f: any) => f.selector) || []),
+            // Include fingerprint alternatives
+            ...(storedFingerprint?.alternativeSelectors || []),
+          ],
+          storedFingerprint: storedFingerprint || undefined,
+          similarityThreshold: 0.6,
+          textAnchor: storedFingerprint?.textAnchor,
+          generateFingerprint: true,
+        });
 
-      // On successful extraction, update fingerprint (even if not healed)
-      if (extractResult.success && !selectorHealed && healingResult.newFingerprint) {
-        try {
-          const updatedFingerprint = createSelectorFingerprint(
-            fetchHtml,
-            extraction.selector,
-            extractResult.value || '',
-            storedFingerprint || undefined,
-          );
+        // Convert healing result to extraction result format
+        extractResult = {
+          success: healingResult.success,
+          value: healingResult.value,
+          selectorUsed: healingResult.selectorUsed,
+          fallbackUsed: healingResult.healed,
+          error: healingResult.error,
+        };
+        selectorHealed = healingResult.healed;
+        healedSelector = healingResult.healed ? healingResult.selectorUsed : null;
 
-          await this.prisma.rule.update({
-            where: { id: ruleId },
-            data: {
-              selectorFingerprint: updatedFingerprint as any,
-            },
-          });
-
-          this.logger.debug(
-            `[Job ${job.id}] Updated selector fingerprint for rule ${ruleId}`,
-          );
-        } catch {
-          // Non-critical - don't fail the job
+        // Log healing method
+        if (healingResult.success) {
+          if (healingResult.healingMethod === 'fingerprint') {
+            this.logger.log(
+              `[Job ${job.id}] Auto-healed via fingerprint matching: ${healingResult.selectorUsed} (similarity: ${((healingResult.similarity || 0) * 100).toFixed(0)}%)`,
+            );
+          } else if (healingResult.healingMethod === 'fallback') {
+            this.logger.log(
+              `[Job ${job.id}] Auto-healed via fallback selector: ${healingResult.selectorUsed}`,
+            );
+          }
         }
-      }
+
+        // If healed, update rule with new selector and fingerprint
+        if (selectorHealed && healedSelector) {
+          try {
+            const newExtraction = { ...extraction, selector: healedSelector };
+
+            // Generate updated fingerprint with healing history
+            const newFingerprint = createSelectorFingerprint(
+              fetchHtml,
+              healedSelector,
+              healingResult.value || '',
+              storedFingerprint || undefined,
+            );
+
+            // Add to healing history
+            if (!newFingerprint.healingHistory) {
+              newFingerprint.healingHistory = [];
+            }
+            newFingerprint.healingHistory.push({
+              timestamp: new Date().toISOString(),
+              oldSelector: extraction.selector,
+              newSelector: healedSelector,
+              similarity: healingResult.similarity || 0,
+            });
+
+            await this.prisma.rule.update({
+              where: { id: ruleId },
+              data: {
+                extraction: newExtraction as any,
+                selectorFingerprint: newFingerprint as any,
+                lastErrorCode: null,
+                lastErrorAt: null,
+              },
+            });
+
+            this.logger.log(
+              `[Job ${job.id}] Rule ${ruleId} auto-healed: ${extraction.selector} → ${healedSelector}`,
+            );
+          } catch (updateError) {
+            this.logger.warn(
+              `[Job ${job.id}] Failed to persist auto-healed selector: ${updateError}`,
+            );
+          }
+        }
+
+        // On successful extraction, update fingerprint (even if not healed)
+        if (extractResult.success && !selectorHealed && healingResult.newFingerprint) {
+          try {
+            const updatedFingerprint = createSelectorFingerprint(
+              fetchHtml,
+              extraction.selector,
+              extractResult.value || '',
+              storedFingerprint || undefined,
+            );
+
+            await this.prisma.rule.update({
+              where: { id: ruleId },
+              data: {
+                selectorFingerprint: updatedFingerprint as any,
+              },
+            });
+
+            this.logger.debug(
+              `[Job ${job.id}] Updated selector fingerprint for rule ${ruleId}`,
+            );
+          } catch {
+            // Non-critical - don't fail the job
+          }
+        }
+      } // end else (CSS/XPath)
 
       if (!extractResult.success) {
+        // Use appropriate error code based on extraction method
+        const errorCode = extraction.method === 'schema'
+          ? 'EXTRACT_SCHEMA_NOT_FOUND'
+          : 'EXTRACT_SELECTOR_NOT_FOUND';
+
         await this.prisma.run.update({
           where: { id: run.id },
           data: {
-            errorCode: 'EXTRACT_SELECTOR_NOT_FOUND',
+            errorCode,
             errorDetail: extractResult.error,
             finishedAt: new Date(),
           },
@@ -426,7 +500,7 @@ export class RunProcessor extends WorkerHost {
         // Update health score on extraction error
         await this.healthScore.updateHealthScore({
           ruleId,
-          errorCode: 'SELECTOR_BROKEN',
+          errorCode: extraction.method === 'schema' ? 'EXTRACT_SCHEMA_NOT_FOUND' : 'SELECTOR_BROKEN',
           usedFallback: false,
         });
         this.logger.error(
