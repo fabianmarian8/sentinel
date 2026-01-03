@@ -88,3 +88,40 @@ export const SCREENSHOT_PADDING_PX = 189;  // 10x10cm pri 96 DPI
 - `apps/worker/src/processors/run.processor.ts` - volanie smartFetch
 
 Detailný troubleshooting: `docs/OPERATIONS.md`
+
+### Fetch Classifier - Dvojvrstvová architektúra (3. jan 2026)
+**Problém:** BrightData vracal `captcha_required` pre legitímne Etsy produktové stránky.
+
+**Príčina:** Generické keyword matching (`recaptcha`, `blocked`, `captcha`) spôsobovalo false positives na veľkých stránkach s:
+- reCAPTCHA widgetmi pre kontaktné formuláre
+- DataDome SDK skriptami (`DD_BLOCKED_EVENT_NAME`, `CaptchaPassed`)
+- JS kódom obsahujúcim "blocked" keywordy
+
+**Riešenie:** Dvojvrstvová architektúra classifiera:
+
+```
+TIER 1: Presné signatúry (vždy aktívne, akákoľvek veľkosť)
+├── geo.captcha-delivery.com, captcha-delivery.com/captcha (DataDome URL)
+├── cf-browser-verification (Cloudflare atribút)
+├── px-captcha (PerimeterX widget)
+├── hcaptcha-challenge, h-captcha-response (hCaptcha)
+└── DataDome challenge text (SK/EN)
+
+TIER 2: Heuristiky (size-gated, <50KB alebo bez product schema)
+├── checking your browser + cloudflare + ray id
+├── perimeterx, _pxhd
+├── verify you are human, i am not a robot
+└── access denied, forbidden (<10KB)
+```
+
+**Product detekcia:** Schema.org JSON-LD (`"@type": "Product"`) namiesto keyword matching.
+
+**Kľúčové súbory:**
+- `apps/worker/src/utils/fetch-classifiers.ts` - hlavný classifier
+- `apps/worker/src/services/brightdata.service.ts` - BrightData isBlocked()
+- `apps/worker/src/utils/__tests__/fetch-classifiers.spec.ts` - 58 testov
+- `apps/worker/src/utils/__tests__/fixtures/` - 6 HTML fixtures
+
+**Regression testy:** 6 fixtures (datadome, cloudflare, perimeterx, rate-limit, generic-block, etsy-product)
+
+**Výsledok:** BrightData vracia `outcome: ok` pre Etsy (522KB, 1.9s, $0.0015)

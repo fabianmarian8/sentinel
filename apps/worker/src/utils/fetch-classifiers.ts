@@ -3,6 +3,24 @@
  *
  * Detect empty responses, blocked pages, and protection mechanisms.
  * "Empty" is a first-class outcome, not just an error.
+ *
+ * ARCHITECTURE (2026-01-03):
+ * Detection is split into two tiers:
+ *
+ * 1. PRECISE SIGNATURES (always on, any page size):
+ *    - Specific URLs (captcha-delivery.com, geo.captcha-delivery.com)
+ *    - Specific HTML attributes (cf-browser-verification, px-captcha)
+ *    - Challenge page text in specific languages
+ *    These have ~99% precision and MUST always fire.
+ *
+ * 2. HEURISTICS (size-gated, require content validation):
+ *    - Bare keywords ('blocked', 'captcha', 'forbidden')
+ *    - Generic provider names ('cloudflare', 'datadome')
+ *    These cause false positives on real pages with JS SDKs.
+ *    Only apply to small pages (<50KB) OR pages without product content.
+ *
+ * Product content is detected via schema.org JSON-LD (@type: "Product"),
+ * NOT via fragile keyword matching.
  */
 
 import { BlockKind, FetchOutcome } from '../types/fetch-result';
@@ -11,6 +29,11 @@ import { BlockKind, FetchOutcome } from '../types/fetch-result';
  * Minimum body size in bytes to consider a response valid
  */
 export const MIN_BODY_BYTES = 2000;
+
+/**
+ * Threshold for "large page" - heuristics are gated above this
+ */
+export const HEURISTIC_SIZE_THRESHOLD = 50000; // 50KB
 
 export interface EmptyClassification {
   isEmpty: boolean;
@@ -22,6 +45,25 @@ export interface BlockClassification {
   kind: BlockKind;
   confidence: number;
   signals: string[];
+}
+
+/**
+ * Detect schema.org Product JSON-LD in page content.
+ * This is the reliable way to detect e-commerce product pages.
+ *
+ * Looks for patterns like:
+ * - "@type": "Product"
+ * - "@type":"Product"
+ * - "@type": ["Product", ...]
+ */
+export function hasSchemaOrgProduct(text: string): boolean {
+  // Fast check - if no @type, definitely no schema.org
+  if (!text.includes('@type')) return false;
+
+  // Match @type with Product (with or without spaces, quotes variations)
+  // Handles: "@type": "Product", "@type":"Product", "@type": ["Product", ...]
+  const productPattern = /"@type"\s*:\s*(\[\s*)?["']?Product["']?/i;
+  return productPattern.test(text);
 }
 
 /**
@@ -67,97 +109,129 @@ export function classifyEmpty(
 }
 
 /**
- * Classify if response is blocked by protection mechanism
+ * Classify if response is blocked by protection mechanism.
+ *
+ * Uses two-tier detection:
+ * 1. Precise signatures - always checked, high confidence
+ * 2. Heuristics - size-gated, lower confidence
  */
 export function classifyBlock(bodyText: string | undefined): BlockClassification {
   const text = bodyText ?? '';
   const lower = text.toLowerCase();
   const signals: string[] = [];
+  const bytes = Buffer.byteLength(text, 'utf8');
 
-  // DataDome CAPTCHA page detection
-  // Note: 'datadome' in cookies/scripts is normal on protected pages
-  // Only detect actual CAPTCHA challenge pages with specific URLs/text
-  // Do NOT use bare 'captcha' matches - too many false positives from JS config
+  // ============================================================
+  // TIER 1: PRECISE SIGNATURES (always on, any page size)
+  // These are specific enough to have ~99% precision
+  // ============================================================
+
+  // DataDome CAPTCHA - specific delivery URLs and challenge text
   if (
     lower.includes('geo.captcha-delivery.com') ||
-    lower.includes('captcha-delivery.com/captcha') ||
+    lower.includes('captcha-delivery.com/captcha')
+  ) {
+    signals.push('datadome_url_signature');
+    return { isBlocked: true, kind: 'datadome', confidence: 0.99, signals };
+  }
+
+  // DataDome challenge page text (localized)
+  if (
     lower.includes('posunutím doprava zložte puzzle') ||  // Slovak
-    lower.includes('slide to complete the puzzle') ||    // English
-    lower.includes('nie s robotom') ||                   // Slovak "not a robot"
+    lower.includes('slide to complete the puzzle') ||    // English DataDome specific
     lower.includes('press & hold')                       // DataDome press & hold
   ) {
-    signals.push('datadome_detected');
+    signals.push('datadome_challenge_text');
     return { isBlocked: true, kind: 'datadome', confidence: 0.95, signals };
   }
 
-  // Cloudflare detection
-  if (
-    lower.includes('cloudflare') ||
-    lower.includes('cf-browser-verification') ||
-    lower.includes('checking your browser') ||
-    lower.includes('ray id:')
-  ) {
-    signals.push('cloudflare_detected');
-    return { isBlocked: true, kind: 'cloudflare', confidence: 0.9, signals };
+  // Cloudflare - specific verification attribute
+  if (lower.includes('cf-browser-verification')) {
+    signals.push('cloudflare_verification_signature');
+    return { isBlocked: true, kind: 'cloudflare', confidence: 0.99, signals };
   }
 
-  // PerimeterX detection
-  if (
-    lower.includes('perimeterx') ||
-    lower.includes('px-captcha') ||
-    lower.includes('_pxhd')
-  ) {
-    signals.push('perimeterx_detected');
-    return { isBlocked: true, kind: 'perimeterx', confidence: 0.9, signals };
+  // PerimeterX - specific CAPTCHA widget
+  if (lower.includes('px-captcha')) {
+    signals.push('perimeterx_captcha_signature');
+    return { isBlocked: true, kind: 'perimeterx', confidence: 0.99, signals };
   }
 
-  // Generic CAPTCHA detection - only for small pages (actual CAPTCHA challenge pages)
-  // Large pages (>100KB) with product content that happen to have a captcha widget
-  // (e.g., Etsy "contact seller" form has g-recaptcha) are NOT blocked
-  const bytes = Buffer.byteLength(text, 'utf8');
-  const hasProductContent =
-    lower.includes('add to cart') ||
-    lower.includes('buy now') ||
-    lower.includes('price') ||
-    lower.includes('product');
+  // hCaptcha specific challenge frame (not just script inclusion)
+  if (lower.includes('hcaptcha-challenge') || lower.includes('h-captcha-response')) {
+    signals.push('hcaptcha_challenge_signature');
+    return { isBlocked: true, kind: 'captcha', confidence: 0.95, signals };
+  }
 
-  // If large page with product content, skip CAPTCHA detection
-  if (bytes > 100000 && hasProductContent) {
-    // Not a CAPTCHA block page - it's a real product page with an optional captcha widget
+  // ============================================================
+  // TIER 2: HEURISTICS (size-gated, require content validation)
+  // These can cause false positives on real pages with JS SDKs
+  // ============================================================
+
+  // Check if this is a legitimate product page (schema.org JSON-LD)
+  const isProductPage = hasSchemaOrgProduct(text);
+  const isLargePage = bytes > HEURISTIC_SIZE_THRESHOLD;
+
+  // Skip heuristics for large product pages - they often have CAPTCHA widgets
+  // for contact forms, review submissions, etc. that are NOT blocking the page
+  if (isLargePage && isProductPage) {
+    signals.push('heuristics_skipped_product_page');
     return { isBlocked: false, kind: 'unknown', confidence: 0, signals };
   }
 
-  const hasCaptchaPage = (
-    lower.includes('i am not a robot') ||
-    lower.includes('recaptcha') ||
-    lower.includes('hcaptcha') ||
-    lower.includes('verify you are human') ||
-    lower.includes('complete this security check')
-  );
-  if (hasCaptchaPage) {
-    signals.push('captcha_detected');
-    return { isBlocked: true, kind: 'captcha', confidence: 0.85, signals };
-  }
-
-  // Rate limit detection
+  // Rate limit detection - medium precision, always check
+  // (rate limit pages are typically small and don't have product schema)
   if (
     lower.includes('rate limit') ||
-    lower.includes('too many requests') ||
-    lower.includes('429')
+    lower.includes('too many requests')
   ) {
     signals.push('rate_limit_detected');
     return { isBlocked: true, kind: 'rate_limit', confidence: 0.9, signals };
   }
 
-  // Generic block detection - only for small pages (<10KB)
-  // Large pages with "blocked" in JS code (e.g., DD_BLOCKED_EVENT_NAME) are not actual blocks
+  // Below here: low-precision heuristics, only for small pages
+  if (isLargePage) {
+    // Large page without product schema - still skip most heuristics
+    // Real block pages are almost always <50KB
+    return { isBlocked: false, kind: 'unknown', confidence: 0, signals };
+  }
+
+  // Cloudflare heuristics (small pages only)
+  if (
+    lower.includes('checking your browser') ||
+    (lower.includes('cloudflare') && lower.includes('ray id'))
+  ) {
+    signals.push('cloudflare_heuristic');
+    return { isBlocked: true, kind: 'cloudflare', confidence: 0.85, signals };
+  }
+
+  // PerimeterX heuristics (small pages only)
+  if (lower.includes('perimeterx') || lower.includes('_pxhd')) {
+    signals.push('perimeterx_heuristic');
+    return { isBlocked: true, kind: 'perimeterx', confidence: 0.8, signals };
+  }
+
+  // Generic CAPTCHA heuristics (small pages only)
+  // NOTE: 'recaptcha' alone causes false positives (g-recaptcha widget on forms)
+  // Require more specific challenge indicators
+  if (
+    lower.includes('i am not a robot') ||
+    lower.includes('verify you are human') ||
+    lower.includes('complete this security check') ||
+    lower.includes('nie s robotom')  // Slovak "not a robot"
+  ) {
+    signals.push('captcha_heuristic');
+    return { isBlocked: true, kind: 'captcha', confidence: 0.8, signals };
+  }
+
+  // Generic block heuristics (very small pages only, <10KB)
+  // These keywords appear in JS code of normal pages
   if (bytes < 10000) {
     if (
       lower.includes('access denied') ||
-      lower.includes('blocked') ||
       lower.includes('forbidden')
     ) {
-      signals.push('generic_block_detected');
+      signals.push('generic_block_heuristic');
       return { isBlocked: true, kind: 'unknown', confidence: 0.7, signals };
     }
   }

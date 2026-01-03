@@ -228,7 +228,11 @@ export class BrightDataService {
 
   /**
    * Check if HTML indicates content is blocked (DataDome, Cloudflare, etc.)
-   * Used to verify if bypass was successful
+   * Used to verify if bypass was successful.
+   *
+   * NOTE: This uses the same two-tier architecture as fetch-classifiers.ts:
+   * - Tier 1: Precise signatures (always checked)
+   * - Tier 2: Heuristics (size-gated)
    *
    * @param html - The HTML content to check
    * @param hasDataDomeHeader - Whether x-datadome: protected header was present
@@ -240,54 +244,59 @@ export class BrightDataService {
     }
 
     const htmlLower = html.toLowerCase();
+    const bytes = html.length;
 
-    // CAPTCHA page patterns (check regardless of page size)
-    // These indicate the actual CAPTCHA challenge page was returned
-    const captchaPatterns = [
-      { pattern: 'nie s robotom', reason: 'DataDome CAPTCHA (Slovak)' },
-      { pattern: 'not a robot', reason: 'DataDome CAPTCHA (English)' },
-      { pattern: 'geo.captcha-delivery.com', reason: 'DataDome CAPTCHA delivery' },
-      { pattern: 'posunutím doprava zložte puzzle', reason: 'DataDome puzzle CAPTCHA' },
-      { pattern: 'slide to complete the puzzle', reason: 'DataDome puzzle CAPTCHA' },
-      { pattern: 'dd.datadome.', reason: 'DataDome script' },
-      { pattern: 'captcha-delivery.com/captcha', reason: 'DataDome CAPTCHA iframe' },
-    ];
+    // ============================================================
+    // TIER 1: PRECISE SIGNATURES (always on, any page size)
+    // ============================================================
 
-    for (const { pattern, reason } of captchaPatterns) {
-      if (htmlLower.includes(pattern)) {
-        return { blocked: true, reason };
-      }
+    // DataDome - specific delivery URLs (highest precision)
+    if (
+      htmlLower.includes('geo.captcha-delivery.com') ||
+      htmlLower.includes('captcha-delivery.com/captcha')
+    ) {
+      return { blocked: true, reason: 'DataDome CAPTCHA delivery URL' };
     }
 
-    // If x-datadome: protected header is present, check for thin content
-    // (real pages are usually much larger and have product-specific content)
-    if (hasDataDomeHeader) {
-      // Check if the page lacks typical product page indicators
-      const hasProductContent =
-        htmlLower.includes('add to cart') ||
-        htmlLower.includes('buy now') ||
-        htmlLower.includes('price') ||
-        htmlLower.includes('product');
-
-      if (!hasProductContent && html.length < 100000) {
-        return { blocked: true, reason: 'DataDome header + no product content' };
-      }
+    // DataDome - specific challenge text
+    if (
+      htmlLower.includes('posunutím doprava zložte puzzle') ||
+      htmlLower.includes('slide to complete the puzzle') ||
+      htmlLower.includes('press & hold')
+    ) {
+      return { blocked: true, reason: 'DataDome challenge text' };
     }
 
-    // Traditional block page patterns (only for small pages)
-    if (html.length < 5000) {
-      const blockPatterns = [
-        { pattern: 'access denied', reason: 'Access denied' },
-        { pattern: 'blocked', reason: 'Blocked message' },
-        { pattern: 'cloudflare', reason: 'Cloudflare challenge' },
-        { pattern: 'checking your browser', reason: 'Browser check' },
-        { pattern: 'ray id', reason: 'Cloudflare Ray ID' },
-      ];
+    // Cloudflare - specific verification attribute
+    if (htmlLower.includes('cf-browser-verification')) {
+      return { blocked: true, reason: 'Cloudflare verification' };
+    }
 
-      for (const { pattern, reason } of blockPatterns) {
-        if (htmlLower.includes(pattern)) {
-          return { blocked: true, reason };
-        }
+    // ============================================================
+    // TIER 2: HEURISTICS (size-gated)
+    // ============================================================
+
+    // Check for schema.org Product JSON-LD (reliable product page indicator)
+    const hasProductSchema = /"@type"\s*:\s*(\[\s*)?["']?Product["']?/i.test(html);
+    const isLargePage = bytes > 50000;
+
+    // Skip heuristics for large product pages
+    if (isLargePage && hasProductSchema) {
+      return { blocked: false, reason: '' };
+    }
+
+    // x-datadome header check - only for non-product pages
+    if (hasDataDomeHeader && !hasProductSchema && bytes < 100000) {
+      return { blocked: true, reason: 'DataDome header + no product schema' };
+    }
+
+    // Traditional block patterns (small pages only)
+    if (bytes < 10000) {
+      if (htmlLower.includes('access denied')) {
+        return { blocked: true, reason: 'Access denied' };
+      }
+      if (htmlLower.includes('checking your browser') && htmlLower.includes('cloudflare')) {
+        return { blocked: true, reason: 'Cloudflare challenge' };
       }
     }
 
