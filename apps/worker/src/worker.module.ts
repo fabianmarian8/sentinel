@@ -13,6 +13,10 @@ import { TwoCaptchaService } from './services/twocaptcha.service';
 import { BrightDataService } from './services/brightdata.service';
 import { ScrapingBrowserService } from './services/scraping-browser.service';
 import { TieredFetchService } from './services/tiered-fetch.service';
+import { DomainCircuitBreakerService } from './services/domain-circuit-breaker.service';
+import { BudgetGuardService } from './services/budget-guard.service';
+import { FetchAttemptLoggerService } from './services/fetch-attempt-logger.service';
+import { FetchOrchestratorService } from './services/fetch-orchestrator.service';
 import { RunProcessor } from './processors/run.processor';
 import { AlertProcessor } from './processors/alert.processor';
 import { QUEUE_NAMES } from './types/jobs';
@@ -80,6 +84,10 @@ import { QUEUE_NAMES } from './types/jobs';
     BrightDataService,
     ScrapingBrowserService,
     TieredFetchService,
+    DomainCircuitBreakerService,
+    BudgetGuardService,
+    FetchAttemptLoggerService,
+    FetchOrchestratorService,
     RunProcessor,
     AlertProcessor,
   ],
