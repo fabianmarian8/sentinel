@@ -255,6 +255,7 @@ export class FetchOrchestratorService {
             userAgent: req.userAgent,
             preferredMode: 'flaresolverr',
             fallbackToHeadless: false,
+            flareSolverrWaitSeconds: req.flareSolverrWaitSeconds,
           });
 
           return {
@@ -358,6 +359,16 @@ export class FetchOrchestratorService {
             };
           },
         });
+      }
+    }
+
+    // If preferredProvider is set and it's a paid provider, move it to the front (paid-first)
+    if (req.preferredProvider && config.allowPaid) {
+      const preferredIndex = candidates.findIndex(c => c.id === req.preferredProvider);
+      if (preferredIndex > 0) {
+        const [preferred] = candidates.splice(preferredIndex, 1);
+        candidates.unshift(preferred);
+        this.logger.log(`[Orchestrator] Preferred provider ${req.preferredProvider} moved to front (paid-first mode)`);
       }
     }
 

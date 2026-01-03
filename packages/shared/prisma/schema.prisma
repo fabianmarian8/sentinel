@@ -157,6 +157,10 @@ model FetchProfile {
   proxyPool       String?   @map("proxy_pool")
   renderWaitMs    Int?      @map("render_wait_ms")
   screenshotOnChange Boolean @default(false) @map("screenshot_on_change")
+  // Domain policy: preferred provider for paid-first routing
+  preferredProvider     FetchProvider? @map("preferred_provider")
+  // FlareSolverr wait time after challenge (seconds, default: instant)
+  flareSolverrWaitSeconds Int?       @map("flaresolverr_wait_seconds")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

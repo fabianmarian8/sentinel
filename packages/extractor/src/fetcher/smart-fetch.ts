@@ -16,6 +16,7 @@ export interface SmartFetchOptions extends FetchOptions {
 
   // FlareSolverr options
   flareSolverrUrl?: string; // default http://localhost:8191/v1
+  flareSolverrWaitSeconds?: number; // Wait after challenge solved (for SPA rendering)
 
   // Headless options (used if fallback triggered)
   renderWaitMs?: number;
@@ -69,6 +70,7 @@ export async function smartFetch(
       // Only use FlareSolverr screenshot if we don't need element-specific screenshot
       returnScreenshot: options.screenshotOnChange && !needsElementScreenshot,
       screenshotPath: needsElementScreenshot ? undefined : options.screenshotPath,
+      waitInSeconds: options.flareSolverrWaitSeconds,
     });
 
     // If we need element screenshot, use headless with FlareSolverr's cookies
@@ -178,6 +180,7 @@ export async function smartFetch(
         // Only use FlareSolverr screenshot if we don't need element-specific screenshot
         returnScreenshot: options.screenshotOnChange && !needsElementScreenshot,
         screenshotPath: needsElementScreenshot ? undefined : options.screenshotPath,
+        waitInSeconds: options.flareSolverrWaitSeconds,
       });
 
       if (flareSolverrResult.success) {
@@ -241,6 +244,7 @@ export async function smartFetch(
                   flareSolverrUrl,
                   returnScreenshot: true,
                   screenshotPath: options.screenshotPath,
+                  waitInSeconds: options.flareSolverrWaitSeconds,
                 });
                 if (retryResult.success) {
                   finalScreenshotPath = retryResult.screenshotPath || null;

@@ -220,6 +220,9 @@ export class RunProcessor extends WorkerHost {
           : undefined,
         cookies: parsedCookies,
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
+        // Domain policy fields
+        preferredProvider: rule.source.fetchProfile?.preferredProvider as FetchRequest['preferredProvider'],
+        flareSolverrWaitSeconds: rule.source.fetchProfile?.flareSolverrWaitSeconds ?? undefined,
       };
 
       // Build OrchestratorConfig

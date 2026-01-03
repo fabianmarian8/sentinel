@@ -45,6 +45,10 @@ export interface FetchRequest {
   timezone?: string;
   renderWaitMs?: number;
   userAgent?: string;
+  // Domain policy: preferred provider for paid-first routing
+  preferredProvider?: ProviderId;
+  // FlareSolverr wait time after challenge (seconds)
+  flareSolverrWaitSeconds?: number;
 }
 
 export interface FetchResult {
