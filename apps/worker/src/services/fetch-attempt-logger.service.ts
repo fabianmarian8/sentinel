@@ -8,6 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FetchResult, ProviderId, FetchOutcome, BlockKind } from '../types/fetch-result';
+import { FetchProvider, FetchOutcome as PrismaFetchOutcome, BlockKind as PrismaBlockKind } from '@prisma/client';
 
 export interface LogAttemptParams {
   workspaceId: string;
@@ -36,9 +37,9 @@ export class FetchAttemptLoggerService {
           ruleId,
           url,
           hostname,
-          provider: result.provider as any,
-          outcome: result.outcome as any,
-          blockKind: result.blockKind as any,
+          provider: result.provider as FetchProvider,
+          outcome: result.outcome as PrismaFetchOutcome,
+          blockKind: result.blockKind as PrismaBlockKind | null,
           httpStatus: result.httpStatus,
           finalUrl: result.finalUrl,
           bodyBytes: result.bodyBytes,
