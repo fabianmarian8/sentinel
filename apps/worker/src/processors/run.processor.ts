@@ -190,7 +190,7 @@ export class RunProcessor extends WorkerHost {
         workspaceId: rule.source.workspaceId,
         ruleId: ruleId,
         hostname: domain,
-        timeoutMs: 30000,
+        timeoutMs: 90000, // Increased for paid providers (BrightData can take 50-60s for DataDome bypass)
         userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
         headers: rule.source.fetchProfile?.headers
           ? (rule.source.fetchProfile.headers as Record<string, string>)
