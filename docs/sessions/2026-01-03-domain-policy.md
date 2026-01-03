@@ -74,8 +74,42 @@ WHERE workspace_id = '<workspace>'
 - `apps/worker/src/processors/run.processor.ts` - propagácia polí
 - `packages/extractor/src/fetcher/smart-fetch.ts` - flareSolverrWaitSeconds
 
+## Critical Fixes (b748f08)
+
+### 1. DataDome Challenge Detection
+FlareSolverr vracal `success=true` ale HTML bol DataDome challenge page.
+
+**Fix:** `mapToOutcome()` teraz kontroluje HTML content:
+```typescript
+private checkForBlockPage(html: string) {
+  if (lower.includes('datadome') || lower.includes('captcha-delivery.com')) {
+    return { isBlocked: true, kind: 'datadome' };
+  }
+}
+```
+
+### 2. Odstránený mobile_ua kandidát
+Mobile UA spôsobuje price flapping kvôli A/B testom a mobile-specific cenám.
+
+### 3. Etsy Production Policy
+```sql
+-- FetchProfile pre Etsy: paid-first (brightdata)
+INSERT INTO fetch_profiles (id, workspace_id, name, preferred_provider)
+VALUES ('etsy_paid_first_profile', '...', 'Etsy Paid-First (DataDome)', 'brightdata');
+
+UPDATE sources SET fetch_profile_id = 'etsy_paid_first_profile' WHERE domain LIKE '%etsy%';
+```
+
+## Kľúčové zistenie
+
+**Etsy používa DataDome, nie Cloudflare!**
+- FlareSolverr je pre Etsy úplne zbytočný
+- Len Bright Data Web Unlocker má DataDome bypass
+- Pre Etsy: `preferredProvider=brightdata` je jediná možnosť
+
 ## Ďalšie kroky
 
 1. **UI pre FetchProfile** - pridať formulár pre preferredProvider a waitSeconds
 2. **Auto-detection** - automaticky nastaviť paid-first pre hostile domény
 3. **Monitoring** - sledovať success rate per doména a provider
+4. **Extraction success tracking** - prepojenie FetchAttempt → extrakčný výsledok
