@@ -13,7 +13,8 @@ import { ConditionEvaluatorService } from '../services/condition-evaluator.servi
 import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
-import { TieredFetchService } from '../services/tiered-fetch.service';
+import { FetchOrchestratorService, OrchestratorConfig } from '../services/fetch-orchestrator.service';
+import { FetchRequest } from '../types/fetch-result';
 import {
   smartFetch,
   extract,
@@ -64,7 +65,7 @@ export class RunProcessor extends WorkerHost {
     private alertGenerator: AlertGeneratorService,
     private rateLimiter: RateLimiterService,
     private healthScore: HealthScoreService,
-    private tieredFetch: TieredFetchService,
+    private fetchOrchestrator: FetchOrchestratorService,
   ) {
     super();
   }
@@ -175,190 +176,101 @@ export class RunProcessor extends WorkerHost {
     }
 
     try {
-      // Step 4: Fetch HTML using smartFetch (supports HTTP + headless fallback)
+      // Step 4: Fetch HTML using FetchOrchestrator (policy-driven provider selection)
       // Get extraction selector for element-only screenshots (smaller file size)
       const extraction = rule.extraction as unknown as ExtractionConfig;
       const screenshotSelector = extraction?.selector;
 
-      const fetchResult = await smartFetch({
+      // Parse cookies from fetchProfile
+      const parsedCookies = rule.source.fetchProfile?.cookies
+        ? (rule.source.fetchProfile.cookies as string).split(';').map(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            return { name, value: value ?? '' };
+          })
+        : undefined;
+
+      // Build FetchRequest
+      const fetchRequest: FetchRequest = {
         url: rule.source.url,
-        timeout: 30000, // 30s timeout for slow sites
+        workspaceId: rule.source.workspaceId,
+        ruleId: ruleId,
+        hostname: domain,
+        timeoutMs: 30000,
         userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
         headers: rule.source.fetchProfile?.headers
           ? (rule.source.fetchProfile.headers as Record<string, string>)
           : undefined,
-        cookies: rule.source.fetchProfile?.cookies
-          ? (rule.source.fetchProfile.cookies as string)
-          : undefined,
-        preferredMode: fetchModeUsed === 'headless' ? 'headless' : 'auto',
-        fallbackToHeadless: true,
+        cookies: parsedCookies,
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
-        screenshotOnChange: screenshotOnChange,
-        screenshotPath: screenshotPath ?? undefined,
-        screenshotSelector: screenshotSelector,
-      });
+      };
 
-      // Step 5: Update run with fetch results (use actual mode from smartFetch)
-      const actualFetchMode = fetchResult.modeUsed || fetchModeUsed;
+      // Build OrchestratorConfig
+      const orchestratorConfig: OrchestratorConfig = {
+        maxAttemptsPerRun: 5,
+        allowPaid: !rule.autoThrottleDisabled,
+      };
+
+      // Execute fetch with orchestrator
+      const orchestratorResult = await this.fetchOrchestrator.fetch(fetchRequest, orchestratorConfig);
+
+      // Extract HTML from result
+      const fetchHtml = orchestratorResult.html || '';
+      const fetchModeUsed = orchestratorResult.final.provider;
+      const httpStatus = orchestratorResult.final.httpStatus;
+      const paidTierUsed = orchestratorConfig.allowPaid && (
+        fetchModeUsed === 'brightdata' ||
+        fetchModeUsed === 'scraping_browser' ||
+        fetchModeUsed === 'twocaptcha_proxy' ||
+        fetchModeUsed === 'twocaptcha_datadome'
+      );
+
+      // Step 5: Update run with fetch results
       await this.prisma.run.update({
         where: { id: run.id },
         data: {
-          fetchModeUsed: actualFetchMode,
-          httpStatus: fetchResult.httpStatus,
-          errorCode: fetchResult.errorCode,
-          errorDetail: fetchResult.errorDetail,
-          timings: fetchResult.timings as any,
-          blockDetected: fetchResult.errorCode?.startsWith('BLOCK_') ?? false,
-          contentHash: fetchResult.success
-            ? createHash('sha256').update(fetchResult.html!).digest('hex')
+          fetchModeUsed: 'http', // Map to FetchMode enum (http, headless, flaresolverr)
+          httpStatus: httpStatus,
+          errorCode: orchestratorResult.final.outcome !== 'ok' ? orchestratorResult.final.outcome.toUpperCase() : null,
+          errorDetail: orchestratorResult.final.errorDetail ??
+            (paidTierUsed ? `Paid tier used: ${fetchModeUsed}` : undefined),
+          blockDetected: orchestratorResult.final.outcome === 'blocked',
+          contentHash: fetchHtml.length > 0
+            ? createHash('sha256').update(fetchHtml).digest('hex')
             : null,
         },
       });
 
-      // Log if fallback was triggered
-      if (fetchResult.fallbackTriggered) {
-        this.logger.log(
-          `[Job ${job.id}] HTTP-to-headless fallback triggered: ${fetchResult.fallbackReason}`,
-        );
-      }
+      this.logger.log(
+        `[Job ${job.id}] Fetch completed via ${fetchModeUsed} (${orchestratorResult.attempts.length} attempts, $${orchestratorResult.final.costUsd.toFixed(4)})`,
+      );
 
-      // Auto-enforce 1-day interval ONLY when 2captcha (paid service) was used
-      // FlareSolverr JS challenges are FREE - no restrictions needed
-      // Only restrict when FlareSolverr message indicates CAPTCHA was solved (paid 2captcha)
-      if (
-        fetchResult.modeUsed === 'flaresolverr' &&
-        !rule.captchaIntervalEnforced
-      ) {
-        const flareSolverrMsg = (fetchResult.flareSolverrMessage || '').toLowerCase();
-
-        // ONLY trigger if FlareSolverr explicitly solved a CAPTCHA (uses paid 2captcha API)
-        // Messages like "Challenge solved!" are FREE (JS challenge bypass)
-        // Messages like "Captcha solved" indicate paid 2captcha usage
-        const usedPaidCaptchaSolver = flareSolverrMsg.includes('captcha');
-
-        // Skip if user has explicitly disabled auto-throttle
-        if (usedPaidCaptchaSolver && !rule.autoThrottleDisabled) {
-          const currentSchedule = rule.schedule as { intervalSeconds?: number; cron?: string } | null;
-          const currentInterval = currentSchedule?.intervalSeconds ?? 0;
-          const ONE_DAY_SEC = 86400;
-
-          if (currentInterval < ONE_DAY_SEC && !rule.captchaIntervalEnforced) {
-            const newNextRunAt = new Date(Date.now() + ONE_DAY_SEC * 1000);
-            await this.prisma.rule.update({
-              where: { id: ruleId },
-              data: {
-                captchaIntervalEnforced: true,
-                originalSchedule: rule.schedule as any,
-                schedule: { ...currentSchedule, intervalSeconds: ONE_DAY_SEC },
-                nextRunAt: newNextRunAt,
-              },
-            });
-            this.logger.warn(
-              `[Job ${job.id}] Rule ${ruleId}: 2captcha used (paid), interval changed to 1 day`,
-            );
-          }
-        } else {
-          this.logger.debug(
-            `[Job ${job.id}] FlareSolverr: "${flareSolverrMsg}" - no paid CAPTCHA, keeping interval`,
-          );
-        }
-      }
-
-      // =====================================================
-      // TIERED FETCH FALLBACK: If smartFetch failed OR got blocked HTML
-      // =====================================================
-      let paidTierUsed = false;
-      let fetchHtml = fetchResult.html || '';
-      const htmlSize = fetchHtml.length;
-      const htmlLower = fetchHtml.toLowerCase();
-
-      // Check if we should try TieredFetch:
-      // 1. SmartFetch completely failed (HTTP 403, etc.)
-      // 2. SmartFetch succeeded but returned blocked HTML
-      const isBlocked = !fetchResult.success || (htmlSize < 5000 && (
-        htmlLower.includes('datadome') ||
-        htmlLower.includes('captcha-delivery.com') ||
-        htmlLower.includes('cloudflare') ||
-        htmlLower.includes('captcha') ||
-        htmlLower.includes('access denied') ||
-        htmlLower.includes('blocked') ||
-        htmlLower.includes('checking your browser')
-      ));
-
-      if (isBlocked) {
-        this.logger.warn(
-          `[Job ${job.id}] Free tier returned blocked HTML (${htmlSize} bytes), trying TieredFetch...`,
-        );
-
-        const tieredResult = await this.tieredFetch.fetch({
-          url: rule.source.url,
-          userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
-          headers: rule.source.fetchProfile?.headers
-            ? (rule.source.fetchProfile.headers as Record<string, string>)
-            : undefined,
-          cookies: rule.source.fetchProfile?.cookies
-            ? (rule.source.fetchProfile.cookies as string)
-            : undefined,
-          timeout: 30000,
-          renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
-          allowPaidTier: true, // Allow paid services for blocked sites
-        });
-
-        if (tieredResult.success && tieredResult.html) {
-          fetchHtml = tieredResult.html;
-          paidTierUsed = tieredResult.paidServiceUsed;
-
-          this.logger.log(
-            `[Job ${job.id}] TieredFetch succeeded via ${tieredResult.methodUsed} (tier: ${tieredResult.tierUsed}, cost: $${tieredResult.estimatedCost?.toFixed(4) || '0'})`,
-          );
-
-          // Update run with new fetch mode
-          // Note: Using 'http' for proxy since FetchMode enum doesn't have proxy values
-          await this.prisma.run.update({
-            where: { id: run.id },
-            data: {
-              fetchModeUsed: 'http', // Proxy is essentially HTTP via proxy
-              contentHash: createHash('sha256').update(fetchHtml).digest('hex'),
-              // Store actual method in metadata via errorDetail (no schema change needed)
-              errorDetail: tieredResult.paidServiceUsed
-                ? `Paid tier used: ${tieredResult.methodUsed}`
-                : undefined,
-            },
-          });
-        } else {
-          this.logger.warn(
-            `[Job ${job.id}] TieredFetch also failed: ${tieredResult.error}`,
-          );
-          // If original smartFetch also failed, we have nothing to extract
-          if (!fetchResult.success) {
-            this.logger.error(
-              `[Job ${job.id}] Both smartFetch and TieredFetch failed, giving up`,
-            );
-            await this.healthScore.updateHealthScore({
-              ruleId,
-              errorCode: fetchResult.errorCode || 'BLOCK_CAPTCHA_SUSPECTED',
-              usedFallback: true,
-            });
-            return await this.handleFetchError(run.id, {
-              ...fetchResult,
-              errorCode: fetchResult.errorCode || 'BLOCK_CAPTCHA_SUSPECTED',
-              errorDetail: `All fetch tiers failed. smartFetch: ${fetchResult.errorCode}, TieredFetch: ${tieredResult.error}`,
-            });
-          }
-        }
-      }
-
-      // If smartFetch failed but we didn't try TieredFetch (shouldn't happen), handle error
-      if (!fetchResult.success && fetchHtml.length === 0) {
+      // Handle fetch failure - if orchestrator couldn't fetch HTML, abort
+      if (!fetchHtml || fetchHtml.length === 0) {
         this.logger.error(
-          `[Job ${job.id}] Fetch failed: ${fetchResult.errorCode} - ${fetchResult.errorDetail}`,
+          `[Job ${job.id}] All fetch attempts failed: ${orchestratorResult.final.outcome}`,
         );
+
+        // Map FetchOutcome to ErrorCode
+        const errorCodeMap: Record<string, string> = {
+          'blocked': 'BLOCK_CAPTCHA_SUSPECTED',
+          'captcha_required': 'BLOCK_CAPTCHA_SUSPECTED',
+          'timeout': 'FETCH_TIMEOUT',
+          'network_error': 'FETCH_CONNECTION',
+          'provider_error': 'SYSTEM_WORKER_CRASH',
+          'empty': 'EXTRACT_EMPTY_VALUE',
+        };
+        const errorCode = errorCodeMap[orchestratorResult.final.outcome] || 'UNKNOWN';
+
         await this.healthScore.updateHealthScore({
           ruleId,
-          errorCode: fetchResult.errorCode,
-          usedFallback: false,
+          errorCode: errorCode as any,
+          usedFallback: orchestratorResult.attempts.length > 1,
         });
-        return await this.handleFetchError(run.id, fetchResult);
+        return await this.handleFetchError(run.id, {
+          success: false,
+          errorCode: errorCode,
+          errorDetail: orchestratorResult.final.errorDetail ?? 'All providers failed',
+        });
       }
 
       // AUTO-THROTTLE: If paid tier was used, enforce 1-day minimum interval
@@ -674,55 +586,31 @@ export class RunProcessor extends WorkerHost {
       await this.healthScore.updateHealthScore({
         ruleId,
         errorCode: null,
-        usedFallback: actualFetchMode === 'headless',
+        usedFallback: orchestratorResult.attempts.length > 1,
       });
 
-      // Step 13: Upload screenshot if captured
-      // NOTE: If TieredFetch was used (paidTierUsed), the smartFetch screenshot shows blocked page
-      // Don't upload blocked screenshots - better to have no screenshot than misleading one
+      // Step 13: Upload screenshot if enabled
+      // TODO: Integrate screenshot capture into orchestrator providers
+      // For now: generate screenshot from fetched HTML when needed
       let uploadedScreenshotPath: string | null = null;
 
       this.logger.debug(
-        `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, fetchResult.screenshotPath=${fetchResult.screenshotPath}, paidTierUsed=${paidTierUsed}`,
+        `[Job ${job.id}] Screenshot check: screenshotOnChange=${screenshotOnChange}, localPath=${screenshotPath}, paidTierUsed=${paidTierUsed}`,
       );
-      if (screenshotOnChange && screenshotPath && fetchResult.screenshotPath && !paidTierUsed) {
-        // Normal case: smartFetch captured screenshot successfully
-        try {
-          const storageClient = getStorageClientAuto();
-          if (storageClient) {
-            const screenshotBuffer = await readFile(screenshotPath);
-            const uploadResult = await storageClient.uploadScreenshot(
-              ruleId,
-              run.id,
-              screenshotBuffer,
-            );
-            uploadedScreenshotPath = uploadResult.url;
-            this.logger.log(
-              `[Job ${job.id}] Screenshot uploaded: ${uploadedScreenshotPath}`,
-            );
-          } else {
-            this.logger.debug(
-              `[Job ${job.id}] Storage client not configured, skipping screenshot upload`,
-            );
-          }
-        } catch (uploadError) {
-          this.logger.warn(
-            `[Job ${job.id}] Screenshot upload error: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`,
-          );
-        }
-      } else if (screenshotOnChange && screenshotPath && paidTierUsed && fetchHtml.length > 5000) {
-        // TieredFetch case: smartFetch screenshot was blocked, generate from TieredFetch HTML
-        // Use element screenshot with 400px padding (~10cm context around selector)
+
+      if (screenshotOnChange && screenshotPath && fetchHtml.length > 5000) {
+        // Generate element screenshot from fetched HTML
+        // Use element screenshot with SCREENSHOT_PADDING_PX context around selector
         this.logger.debug(
-          `[Job ${job.id}] TieredFetch succeeded, generating element screenshot from HTML (selector: ${screenshotSelector || 'viewport'})`,
+          `[Job ${job.id}] Generating element screenshot from HTML (selector: ${screenshotSelector || 'body'})`,
         );
         try {
           const screenshotResult = await takeElementScreenshot({
             url: rule.source.url,
-            html: fetchHtml, // Use pre-fetched HTML from TieredFetch
+            html: fetchHtml,
             outputPath: screenshotPath,
-            selector: screenshotSelector || 'body', // Use extraction selector or fallback to body
-            padding: SCREENSHOT_PADDING_PX, // 10x10cm context around element
+            selector: screenshotSelector || 'body',
+            padding: SCREENSHOT_PADDING_PX,
             quality: 80,
           });
 
@@ -737,17 +625,17 @@ export class RunProcessor extends WorkerHost {
               );
               uploadedScreenshotPath = uploadResult.url;
               this.logger.log(
-                `[Job ${job.id}] TieredFetch screenshot uploaded: ${uploadedScreenshotPath}`,
+                `[Job ${job.id}] Screenshot uploaded: ${uploadedScreenshotPath}`,
               );
             }
           } else {
             this.logger.warn(
-              `[Job ${job.id}] TieredFetch screenshot generation failed: ${screenshotResult.error}`,
+              `[Job ${job.id}] Screenshot generation failed: ${screenshotResult.error}`,
             );
           }
         } catch (screenshotError) {
           this.logger.warn(
-            `[Job ${job.id}] TieredFetch screenshot error: ${screenshotError instanceof Error ? screenshotError.message : String(screenshotError)}`,
+            `[Job ${job.id}] Screenshot error: ${screenshotError instanceof Error ? screenshotError.message : String(screenshotError)}`,
           );
         }
       }
