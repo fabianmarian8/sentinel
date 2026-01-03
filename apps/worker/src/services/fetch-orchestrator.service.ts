@@ -220,30 +220,8 @@ export class FetchOrchestratorService {
           };
         },
       },
-      {
-        id: 'mobile_ua',
-        isPaid: false,
-        execute: async () => {
-          const mobileUA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-          const response = await fetch(req.url, {
-            headers: {
-              'User-Agent': mobileUA,
-              ...req.headers,
-            },
-            signal: AbortSignal.timeout(req.timeoutMs),
-          });
-
-          const html = await response.text();
-
-          return {
-            outcome: response.ok ? 'ok' : 'network_error',
-            html,
-            costUsd: 0,
-            httpStatus: response.status,
-            latencyMs: 0,
-          };
-        },
-      },
+      // NOTE: mobile_ua removed - causes price flapping due to A/B testing and mobile-specific pricing
+      // If needed, configure explicitly via FetchProfile.userAgent
       {
         id: 'flaresolverr',
         isPaid: false,
@@ -377,12 +355,10 @@ export class FetchOrchestratorService {
 
   /**
    * Map smartFetch result to FetchOutcome
+   * IMPORTANT: Checks HTML content for block pages even if success=true
    */
   private mapToOutcome(result: { success: boolean; errorCode: string | null; html: string | null }): FetchOutcome {
-    if (result.success && result.html) {
-      return 'ok';
-    }
-
+    // Check for known error codes first
     if (result.errorCode === 'CLOUDFLARE_BLOCK' || result.errorCode === 'DATADOME_BLOCK') {
       return 'blocked';
     }
@@ -395,6 +371,55 @@ export class FetchOrchestratorService {
       return 'empty';
     }
 
+    // Even if success=true, check HTML for block pages (DataDome, Cloudflare challenge pages)
+    if (result.html) {
+      const blockCheck = this.checkForBlockPage(result.html);
+      if (blockCheck.isBlocked) {
+        this.logger.warn(`[Orchestrator] Block page detected: ${blockCheck.kind} (${blockCheck.signals.join(', ')})`);
+        return 'blocked';
+      }
+      return 'ok';
+    }
+
     return 'network_error';
+  }
+
+  /**
+   * Check HTML content for block pages (DataDome, Cloudflare, etc.)
+   */
+  private checkForBlockPage(html: string): { isBlocked: boolean; kind: string; signals: string[] } {
+    const lower = html.toLowerCase();
+    const signals: string[] = [];
+
+    // DataDome detection (Etsy, etc.)
+    if (
+      lower.includes('datadome') ||
+      lower.includes('captcha-delivery.com') ||
+      lower.includes('geo.captcha-delivery.com') ||
+      lower.includes('datadome device check')
+    ) {
+      signals.push('datadome_challenge');
+      return { isBlocked: true, kind: 'datadome', signals };
+    }
+
+    // Cloudflare challenge
+    if (
+      lower.includes('cf-browser-verification') ||
+      (lower.includes('cloudflare') && lower.includes('checking your browser'))
+    ) {
+      signals.push('cloudflare_challenge');
+      return { isBlocked: true, kind: 'cloudflare', signals };
+    }
+
+    // Generic CAPTCHA
+    if (
+      lower.includes('captcha') &&
+      html.length < 10000  // Challenge pages are small
+    ) {
+      signals.push('captcha_page');
+      return { isBlocked: true, kind: 'captcha', signals };
+    }
+
+    return { isBlocked: false, kind: '', signals: [] };
   }
 }
