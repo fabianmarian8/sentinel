@@ -32,6 +32,7 @@ export function equals(a: any, b: any): boolean {
   // For prices: compare using low-first strategy
   // Use valueLow (from schema extraction) or fallback to value
   // Ignore valueHigh to prevent range-based flapping
+  // Compare currency AND country (if both have it) - market context must match
   if (
     typeof a === 'object' &&
     ('value' in a || 'valueLow' in a) &&
@@ -40,6 +41,13 @@ export function equals(a: any, b: any): boolean {
   ) {
     const aLow = a.valueLow ?? a.value;
     const bLow = b.valueLow ?? b.value;
+
+    // Country mismatch = different market context (even if same currency)
+    // Only compare if both have country (backward compat with old observations)
+    if (a.country && b.country && a.country !== b.country) {
+      return false;
+    }
+
     return aLow === bLow && a.currency === b.currency;
   }
 

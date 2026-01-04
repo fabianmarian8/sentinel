@@ -344,7 +344,7 @@ export class RunProcessor extends WorkerHost {
                 `[Job ${job.id}] Schema drift detected: ${drift.reason}`,
               );
 
-              // Create Alert for schema drift (with dedupe to prevent duplicates)
+              // Create Alert for schema drift (with dedupe + occurrence tracking)
               const newShapeHash = schemaResult.meta.fingerprint.shapeHash;
               const dedupeKey = `schema_drift:${ruleId}:${newShapeHash}`;
               try {
@@ -361,8 +361,19 @@ export class RunProcessor extends WorkerHost {
                 });
                 this.logger.log(`[Job ${job.id}] Schema drift alert created (dedupeKey: ${dedupeKey})`);
               } catch (error: any) {
-                // Ignore duplicate key constraint (P2002) - alert already exists for this drift
-                if (error?.code !== 'P2002') {
+                // Duplicate key (P2002) - update existing alert with new timestamp
+                // This tracks "how often" and "when last" the drift is still happening
+                if (error?.code === 'P2002') {
+                  await this.prisma.alert.updateMany({
+                    where: { dedupeKey },
+                    data: {
+                      triggeredAt: new Date(),
+                      resolvedAt: null, // Re-open if was resolved
+                      body: `${drift.reason} (recurring)`,
+                    },
+                  });
+                  this.logger.debug(`[Job ${job.id}] Schema drift alert updated (recurring, dedupeKey: ${dedupeKey})`);
+                } else {
                   this.logger.error(`[Job ${job.id}] Failed to create schema drift alert: ${error.message}`);
                 }
               }

@@ -65,7 +65,7 @@ export function detectChange(
  * Detect price changes using low-first strategy
  *
  * Priority:
- * 1. Currency change = CRITICAL (format_changed)
+ * 1. Currency/Country change = CRITICAL (format_changed) - market context change
  * 2. Low price change = PRIMARY signal (value_changed)
  * 3. High price change = INFO only (no changeKind, but diffSummary populated)
  */
@@ -77,12 +77,23 @@ function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult 
   const newHigh = newValue?.valueHigh;
   const oldCurrency = oldValue?.currency ?? '';
   const newCurrency = newValue?.currency ?? '';
+  const oldCountry = oldValue?.country;
+  const newCountry = newValue?.country;
 
   // CRITICAL: Currency change (different market/geo)
   if (oldCurrency && newCurrency && oldCurrency !== newCurrency) {
     return {
       changeKind: 'format_changed' as ChangeKind,
       diffSummary: `Currency changed: ${oldLow} ${oldCurrency} → ${newLow} ${newCurrency} (different market context)`,
+    };
+  }
+
+  // CRITICAL: Country change (different market context, even if same currency)
+  // Only trigger if both have country (backward compat with old observations)
+  if (oldCountry && newCountry && oldCountry !== newCountry) {
+    return {
+      changeKind: 'format_changed' as ChangeKind,
+      diffSummary: `Geo context changed: ${oldCountry} → ${newCountry} (price may reflect different market)`,
     };
   }
 
