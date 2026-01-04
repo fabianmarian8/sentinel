@@ -347,14 +347,23 @@ export class RunProcessor extends WorkerHost {
               // Create Alert for schema drift (with dedupe + occurrence tracking)
               const newShapeHash = schemaResult.meta.fingerprint.shapeHash;
               const dedupeKey = `schema_drift:${ruleId}:${newShapeHash}`;
+              const driftMetadata = {
+                oldShapeHash: storedSchemaFingerprint.shapeHash,
+                newShapeHash,
+                oldBlockCount: storedSchemaFingerprint.jsonLdBlockCount,
+                newBlockCount: schemaResult.meta.fingerprint.jsonLdBlockCount,
+                reason: drift.reason ?? 'Unknown drift',
+              };
               try {
                 await this.prisma.alert.create({
                   data: {
                     ruleId,
                     triggeredAt: new Date(),
                     severity: 'medium',
+                    alertType: 'schema_drift',
                     title: 'Schema drift detected',
-                    body: drift.reason,
+                    body: drift.reason ?? 'Unknown drift',
+                    metadata: driftMetadata,
                     dedupeKey,
                     channelsSent: [],
                   },
@@ -369,7 +378,8 @@ export class RunProcessor extends WorkerHost {
                     data: {
                       triggeredAt: new Date(),
                       resolvedAt: null, // Re-open if was resolved
-                      body: `${drift.reason} (recurring)`,
+                      body: `${drift.reason ?? 'Unknown drift'} (recurring)`,
+                      metadata: driftMetadata,
                     },
                   });
                   // Invariant check: dedupeKey is unique, so count should always be 1
@@ -949,6 +959,23 @@ export class RunProcessor extends WorkerHost {
       return;
     }
 
+    // Determine alertType based on changeKind
+    const alertType = this.mapChangeKindToAlertType(change?.changeKind);
+
+    // Build structured metadata for queryability
+    const alertMetadata = {
+      changeKind: change?.changeKind,
+      diffSummary: change?.diffSummary,
+      oldValue: rule.state?.lastStable,
+      newValue: value,
+      conditionIds,
+      triggeredConditions: triggeredConditions.map((c) => ({
+        id: c.id,
+        type: c.type,
+        severity: c.severity,
+      })),
+    };
+
     // Create alert record (with duplicate key handling)
     let alert;
     try {
@@ -957,8 +984,10 @@ export class RunProcessor extends WorkerHost {
           ruleId: rule.id,
           triggeredAt: new Date(),
           severity: alertSeverity,
+          alertType,
           title,
           body,
+          metadata: alertMetadata,
           dedupeKey,
           channelsSent: [],
         },
@@ -1068,6 +1097,27 @@ export class RunProcessor extends WorkerHost {
   /**
    * Handle job failure
    */
+  /**
+   * Map ChangeKind to AlertType for structured querying
+   */
+  private mapChangeKindToAlertType(changeKind: string | null | undefined): 'value_changed' | 'market_context' | 'threshold_alert' | null {
+    if (!changeKind) return null;
+
+    switch (changeKind) {
+      case 'value_changed':
+      case 'new_value':
+      case 'value_disappeared':
+        return 'value_changed';
+      case 'format_changed':
+        // format_changed includes currency/country changes (market context)
+        return 'market_context';
+      case 'threshold_exceeded':
+        return 'threshold_alert';
+      default:
+        return 'value_changed';
+    }
+  }
+
   async onFailed(job: Job<RunJobPayload> | undefined, error: Error) {
     if (!job) {
       this.logger.error('Job failed without job data', error.stack);

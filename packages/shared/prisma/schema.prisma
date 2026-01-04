@@ -78,6 +78,16 @@ enum AlertSeverity {
   critical
 }
 
+enum AlertType {
+  value_changed       // Price/availability change
+  schema_drift        // Schema structure changed
+  market_context      // Currency or country changed
+  budget_exceeded     // Cost limit reached
+  provider_error      // Fetch provider failing
+  extraction_error    // Can't extract data
+  threshold_alert     // Custom threshold triggered
+}
+
 enum NotificationChannelType {
   email
   telegram      // Keep for backwards compatibility
@@ -292,8 +302,10 @@ model Alert {
   ruleId          String        @map("rule_id")
   triggeredAt     DateTime      @default(now()) @map("triggered_at")
   severity        AlertSeverity
+  alertType       AlertType?    @map("alert_type") // Structured type for filtering/analytics
   title           String
   body            String        @db.Text
+  metadata        Json?         // Structured data: old/new values, currency, country, etc.
   channelsSent    Json?         @map("channels_sent") // which channels received this alert
   dedupeKey       String        @unique @map("dedupe_key") // prevent duplicate alerts
   acknowledgedAt  DateTime?     @map("acknowledged_at")
@@ -305,6 +317,7 @@ model Alert {
   @@index([ruleId])
   @@index([triggeredAt])
   @@index([dedupeKey])
+  @@index([alertType])
   @@map("alerts")
 }
 
