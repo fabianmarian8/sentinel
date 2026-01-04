@@ -17,6 +17,7 @@ import { DomainCircuitBreakerService } from './services/domain-circuit-breaker.s
 import { BudgetGuardService } from './services/budget-guard.service';
 import { FetchAttemptLoggerService } from './services/fetch-attempt-logger.service';
 import { FetchOrchestratorService } from './services/fetch-orchestrator.service';
+import { ConcurrencySemaphoreService } from './services/concurrency-semaphore.service';
 import { RunProcessor } from './processors/run.processor';
 import { AlertProcessor } from './processors/alert.processor';
 import { MaintenanceProcessor } from './processors/maintenance.processor';
@@ -102,6 +103,7 @@ import { QUEUE_NAMES } from './types/jobs';
     BudgetGuardService,
     FetchAttemptLoggerService,
     FetchOrchestratorService,
+    ConcurrencySemaphoreService,
     RunProcessor,
     AlertProcessor,
     MaintenanceProcessor,
