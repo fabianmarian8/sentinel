@@ -364,7 +364,7 @@ export class RunProcessor extends WorkerHost {
                 // Duplicate key (P2002) - update existing alert with new timestamp
                 // This tracks "how often" and "when last" the drift is still happening
                 if (error?.code === 'P2002') {
-                  await this.prisma.alert.updateMany({
+                  const updateResult = await this.prisma.alert.updateMany({
                     where: { dedupeKey },
                     data: {
                       triggeredAt: new Date(),
@@ -372,6 +372,12 @@ export class RunProcessor extends WorkerHost {
                       body: `${drift.reason} (recurring)`,
                     },
                   });
+                  // Invariant check: dedupeKey is unique, so count should always be 1
+                  if (updateResult.count !== 1) {
+                    this.logger.warn(
+                      `[Job ${job.id}] Schema drift updateMany count=${updateResult.count} (expected 1) for dedupeKey: ${dedupeKey}`,
+                    );
+                  }
                   this.logger.debug(`[Job ${job.id}] Schema drift alert updated (recurring, dedupeKey: ${dedupeKey})`);
                 } else {
                   this.logger.error(`[Job ${job.id}] Failed to create schema drift alert: ${error.message}`);
