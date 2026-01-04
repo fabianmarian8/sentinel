@@ -129,6 +129,45 @@ describe('extractWithSchema', () => {
       expect(result.rawValue).toBe('123.45');
     });
 
+    it('should find Product nested under arbitrary keys (full traversal)', () => {
+      // P0-1 FIX: Tests that we find Products even when nested under non-standard keys
+      // like itemListElement, hasVariant, isRelatedTo, etc.
+      const html = `
+        <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@type": "ItemList",
+              "name": "Product List",
+              "itemListElement": [
+                {
+                  "@type": "ListItem",
+                  "position": 1,
+                  "item": {
+                    "@type": "Product",
+                    "name": "Nested Product",
+                    "offers": {
+                      "@type": "Offer",
+                      "price": "199.99",
+                      "priceCurrency": "USD"
+                    }
+                  }
+                }
+              ]
+            }
+          </script>
+        </head>
+        <body></body>
+        </html>
+      `;
+
+      const result = extractWithSchema(html, { kind: 'price' });
+
+      expect(result.success).toBe(true);
+      expect(result.rawValue).toBe('199.99');
+      expect(result.meta?.currency).toBe('USD');
+    });
+
     it('should extract availability from schema.org URL', () => {
       const html = `
         <html>
@@ -446,6 +485,62 @@ describe('extractWithSchema', () => {
       expect(result.rawValue).toBe('10');
       expect(result.meta?.valueLow).toBe(10);
       expect(result.meta?.valueHigh).toBe(50);
+    });
+
+    it('should compute min/max from offers array (not first offer)', () => {
+      // P0-2 FIX: This tests that we compute min/max instead of taking first offer
+      // Array order doesn't matter - we should always get min=15, max=45
+      const html = `
+        <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@type": "Product",
+              "offers": [
+                { "@type": "Offer", "price": "25.00", "priceCurrency": "USD" },
+                { "@type": "Offer", "price": "45.00", "priceCurrency": "USD" },
+                { "@type": "Offer", "price": "15.00", "priceCurrency": "USD" },
+                { "@type": "Offer", "price": "35.00", "priceCurrency": "USD" }
+              ]
+            }
+          </script>
+        </head>
+        <body></body>
+        </html>
+      `;
+
+      const result = extractWithSchema(html, { kind: 'price', prefer: 'low' });
+
+      expect(result.success).toBe(true);
+      expect(result.rawValue).toBe('15'); // Min price, not first (25)
+      expect(result.meta?.valueLow).toBe(15);
+      expect(result.meta?.valueHigh).toBe(45);
+    });
+
+    it('should return max price when prefer=high for offers array', () => {
+      const html = `
+        <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@type": "Product",
+              "offers": [
+                { "@type": "Offer", "price": "10.00", "priceCurrency": "EUR" },
+                { "@type": "Offer", "price": "99.00", "priceCurrency": "EUR" },
+                { "@type": "Offer", "price": "50.00", "priceCurrency": "EUR" }
+              ]
+            }
+          </script>
+        </head>
+        <body></body>
+        </html>
+      `;
+
+      const result = extractWithSchema(html, { kind: 'price', prefer: 'high' });
+
+      expect(result.success).toBe(true);
+      expect(result.rawValue).toBe('99'); // Max price
+      expect(result.meta?.currency).toBe('EUR'); // Currency of min price offer
     });
   });
 });

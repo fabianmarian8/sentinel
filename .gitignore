@@ -57,7 +57,8 @@ apps/extension/dist/
 apps/extension/build/
 
 # Prisma
-packages/shared/prisma/migrations/
+# NOTE: Migrations should be committed for reproducible DB changes
+# Use `prisma migrate deploy` in staging/prod, never `db push`
 
 # S3 local testing
 .s3-local/

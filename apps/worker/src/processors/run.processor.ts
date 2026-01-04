@@ -519,12 +519,48 @@ export class RunProcessor extends WorkerHost {
       }
 
       // Step 7: Normalize value
+      // P0-3 FIX: For schema extraction, use extracted metadata (currency, range)
+      // instead of config-based normalization which ignores the actual data
       const normalization = rule.normalization as unknown as NormalizationConfig | null;
-      const normalizedValue = normalizeValue(
-        extractResult.value!,
-        normalization,
-        rule.ruleType as RuleType,
-      );
+      let normalizedValue: any;
+
+      if (extraction.method === 'schema' && schemaExtractMeta) {
+        // Schema extraction: use extracted currency and range from JSON-LD/meta
+        const ruleType = rule.ruleType as RuleType;
+
+        if (ruleType === 'price') {
+          const numericValue = parseFloat(extractResult.value!);
+          normalizedValue = {
+            value: isNaN(numericValue) ? null : numericValue,
+            currency: schemaExtractMeta.currency, // Use extracted currency, not config
+            valueLow: schemaExtractMeta.valueLow,
+            valueHigh: schemaExtractMeta.valueHigh,
+            source: schemaExtractMeta.source, // 'jsonld' or 'meta'
+            currencyConflict: schemaExtractMeta.currencyConflict,
+          };
+        } else if (ruleType === 'availability') {
+          normalizedValue = {
+            status: extractResult.value as any, // Already mapped to 'in_stock', 'out_of_stock', etc.
+            leadTimeDays: null,
+            availabilityUrl: schemaExtractMeta.availabilityUrl,
+            source: schemaExtractMeta.source,
+          };
+        } else {
+          // For other rule types, use standard normalization
+          normalizedValue = normalizeValue(
+            extractResult.value!,
+            normalization,
+            ruleType,
+          );
+        }
+      } else {
+        // CSS/XPath extraction: use config-based normalization
+        normalizedValue = normalizeValue(
+          extractResult.value!,
+          normalization,
+          rule.ruleType as RuleType,
+        );
+      }
 
       // Step 8: Anti-flap check
       // Default to 2 consecutive observations to filter out glitch extractions

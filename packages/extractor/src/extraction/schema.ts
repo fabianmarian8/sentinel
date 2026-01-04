@@ -39,7 +39,7 @@ const PRODUCT_TYPES = new Set([
   'product',
   'productmodel',
   'productgroup',
-  'indivisualproduct',
+  'individualproduct', // Fixed typo: was 'indivisualproduct'
 ]);
 
 /**
@@ -194,6 +194,9 @@ function extractJsonLdBlocks(html: string): string[] {
 /**
  * Recursively find product candidates and score them.
  * Entity-based approach: scores based on completeness, not path.
+ *
+ * FULL TRAVERSAL: Searches through ALL object values, not just @graph/mainEntity.
+ * This handles schemas where Product is nested under itemListElement, hasVariant, etc.
  */
 function findProductCandidates(
   obj: unknown,
@@ -203,7 +206,7 @@ function findProductCandidates(
   if (depth > MAX_RECURSION_DEPTH) return;
   if (obj === null || typeof obj !== 'object') return;
 
-  // Handle arrays (including @graph)
+  // Handle arrays (including @graph, itemListElement, etc.)
   if (Array.isArray(obj)) {
     for (const item of obj.slice(0, MAX_ARRAY_ITEMS)) {
       findProductCandidates(item, candidates, depth + 1);
@@ -234,14 +237,13 @@ function findProductCandidates(
     });
   }
 
-  // Check @graph
-  if (record['@graph']) {
-    findProductCandidates(record['@graph'], candidates, depth + 1);
-  }
-
-  // Check nested mainEntity
-  if (record['mainEntity']) {
-    findProductCandidates(record['mainEntity'], candidates, depth + 1);
+  // FULL TRAVERSAL: Recursively search ALL object values
+  // This finds Products nested under any key: @graph, mainEntity, itemListElement,
+  // hasVariant, isRelatedTo, offers.itemOffered, etc.
+  for (const value of Object.values(record)) {
+    if (value !== null && typeof value === 'object') {
+      findProductCandidates(value, candidates, depth + 1);
+    }
   }
 }
 
@@ -380,10 +382,54 @@ function extractPriceFromEntity(
         break;
     }
   } else {
-    // Use first regular offer (safe: parsedOffers.length > 0 checked above)
-    const firstOffer = parsedOffers[0]!;
-    selectedPrice = firstOffer.price;
-    selectedCurrency = firstOffer.currency;
+    // P0-2 FIX: Compute min/max from all offers instead of taking first
+    // This prevents flapping when offer order changes
+    const offersWithPrice = parsedOffers.filter(o => o.price !== null);
+
+    if (offersWithPrice.length === 0) {
+      return {
+        success: false,
+        rawValue: null,
+        meta: null,
+        error: 'No offers with valid price found',
+      };
+    }
+
+    // Single-pass min/max computation
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+    let primaryCurrency: string | null = null;
+
+    for (const offer of offersWithPrice) {
+      const price = offer.price!;
+      if (price < minPrice) {
+        minPrice = price;
+        primaryCurrency = offer.currency; // currency of min price
+      }
+      if (price > maxPrice) {
+        maxPrice = price;
+      }
+    }
+
+    valueLow = minPrice;
+    valueHigh = maxPrice;
+    selectedCurrency = primaryCurrency;
+
+    // Default to minPrice for monitoring "od" ceny
+    // This is stable - always picks the lowest regardless of array order
+    switch (prefer) {
+      case 'low':
+        selectedPrice = minPrice;
+        break;
+      case 'high':
+        selectedPrice = maxPrice;
+        break;
+      case 'price':
+      default:
+        // Default: use minPrice for stable monitoring
+        selectedPrice = minPrice;
+        break;
+    }
   }
 
   if (selectedPrice === null) {
