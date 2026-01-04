@@ -393,6 +393,16 @@ export function determineFetchOutcome(
 
   // Network/provider error
   if (errorDetail) {
+    // Rate limit detection (BrightData, 2captcha, etc.)
+    // Must check before general provider_error to properly classify
+    if (
+      errorDetail.includes('RATE_LIMITED') ||
+      errorDetail.includes('rate limit') ||
+      errorDetail.includes('exceeded the allowed rate')
+    ) {
+      signals.push('rate_limited');
+      return { outcome: 'rate_limited', signals };
+    }
     if (errorDetail.includes('timeout') || errorDetail.includes('ETIMEDOUT')) {
       signals.push('timeout');
       return { outcome: 'timeout', signals };
