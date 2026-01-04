@@ -207,3 +207,58 @@ WHERE name LIKE '%Etsy%' OR name LIKE '%DataDome%';
 - www.amazon.com (37 rules)
 - www.etsy.com (36 rules) - **brightdata-only, geo=us**
 - www.walmart.com (17 rules)
+
+#### 7. Etsy Burst Test výsledky (4. jan 2026)
+**Pred zmenou politiky:** 26.3% success rate (fallback zoo: http→headless→flaresolverr→brightdata)
+
+**Po zmene politiky (brightdata-only):**
+- **Success rate: 87.5%** (14/16 úspešných fetch attempts)
+- **Zlepšenie: +61.2 percentuálnych bodov**
+- **Total cost: $0.024** (16 × $0.0015)
+- **Avg latency: 46.9s**
+- **P95 latency: 90.0s** (= timeout)
+
+**Zostávajúce chyby (2/16):** BrightData timeout (90s limit prekročený)
+
+**Konfigurácia:**
+```sql
+-- Etsy hostile domain policy
+preferred_provider = 'brightdata'
+disabled_providers = '{http,headless,flaresolverr,twocaptcha_proxy,twocaptcha_datadome,scraping_browser}'
+stop_after_preferred_failure = true
+geo_country = 'us'
+```
+
+**Rate limiter poznámka:** Pre paralelné pravidlá na rovnakej doméne potrebný stagger 90+ sekúnd (brightdata paidRequestsPerMinute=2, burst=1).
+
+#### 8. Selector Audit - EXTRACT_SELECTOR_NOT_FOUND Root Cause (4. jan 2026)
+
+**Problém:** Vysoký podiel EXTRACT_SELECTOR_NOT_FOUND chýb na viacerých doménach (Amazon 76%, Temu 100%, Target 100%).
+
+**Root cause analýza:**
+
+| Doména | Veľkosť | Skutočná príčina | Fix |
+|--------|---------|------------------|-----|
+| Amazon | 5KB | CAPTCHA soft-wall (`validateCaptcha`, `opfcaptcha.amazon.com`) | Classifier signature |
+| Temu | 3KB | Kwai JS challenge (`kwcdn.com/chl/js`) | Classifier signature |
+| Target | 138KB | Redirect na homepage (geo-blocking) | FetchProfile geo_country |
+| Zalando | 148B | 502 Bad Gateway | Network error handling |
+
+**Záver:** EXTRACT_SELECTOR_NOT_FOUND je väčšinou **classifier gap**, nie selector problém! Stránky vracajú 200 OK s CAPTCHA/challenge obsahom, ktorý nebol detekovaný.
+
+**Implementované classifier signatúry:**
+```typescript
+// Amazon soft-wall CAPTCHA
+/validatecaptcha/i
+/opfcaptcha\.amazon\.com/i
+
+// Temu/Kwai JS challenge
+/kwcdn\.com.*chl\/js/i
+/tcf4d6d81375da79971fbf9d1e81b99bb9/i  // Temu challenge token
+```
+
+**Nové fixtures:**
+- `amazon-captcha-softwall.html`
+- `temu-challenge.html`
+
+**Testy:** 74 passing (vrátane 12 nových pre Amazon/Temu)

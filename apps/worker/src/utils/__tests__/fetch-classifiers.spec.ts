@@ -310,6 +310,64 @@ describe('fetch-classifiers', () => {
         expect(result.kind).toBe('captcha');
       });
     });
+
+    describe('Amazon CAPTCHA Soft-wall', () => {
+      it('detects Amazon CAPTCHA page via fixture', () => {
+        const html = loadFixture('amazon-captcha-softwall.html');
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.confidence).toBe(0.99);
+        expect(result.signals).toContain('amazon_captcha_signature');
+      });
+
+      it('detects validateCaptcha form action', () => {
+        const html = '<form action="/errors/validateCaptcha"><button>Continue</button></form>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('amazon_captcha_signature');
+      });
+
+      it('detects opfcaptcha.amazon.com script', () => {
+        const html = '<script src="https://opfcaptcha.amazon.com/script.js"></script>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+      });
+    });
+
+    describe('Temu/Kwai JS Challenge', () => {
+      it('detects Temu challenge page via fixture', () => {
+        const html = loadFixture('temu-challenge.html');
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.confidence).toBe(0.95);
+        expect(result.signals).toContain('temu_challenge_signature');
+      });
+
+      it('detects kwcdn.com challenge script URL', () => {
+        const html = '<script src="https://static.kwcdn.com/upload-static/assets/chl/js/abc.js"></script>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('temu_challenge_signature');
+      });
+
+      it('detects Temu challenge token', () => {
+        const html = '<script>var token = "tcf4d6d81375da79971fbf9d1e81b99bb9";</script>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+      });
+    });
   });
 
   describe('classifyBlock - Tier 2: Heuristics (size-gated)', () => {

@@ -304,6 +304,26 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
     return { isBlocked: true, kind: 'captcha', confidence: 0.95, signals };
   }
 
+  // Amazon soft-wall CAPTCHA page
+  // Returns 200 OK but shows "Click to continue shopping" with validateCaptcha form
+  if (
+    lower.includes('validatecaptcha') ||
+    lower.includes('opfcaptcha.amazon.com')
+  ) {
+    signals.push('amazon_captcha_signature');
+    return { isBlocked: true, kind: 'captcha', confidence: 0.99, signals };
+  }
+
+  // Temu/Kwai JS challenge page
+  // Obfuscated JS that loads challenge script from kwcdn.com
+  if (
+    lower.includes('kwcdn.com') && lower.includes('chl/js') ||
+    lower.includes('tcf4d6d81375da79971fbf9d1e81b99bb9')  // Temu challenge token
+  ) {
+    signals.push('temu_challenge_signature');
+    return { isBlocked: true, kind: 'captcha', confidence: 0.95, signals };
+  }
+
   // ============================================================
   // TIER 2: HEURISTICS (size-gated, require content validation)
   // These can cause false positives on real pages with JS SDKs
