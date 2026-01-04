@@ -125,3 +125,67 @@ TIER 2: Heuristiky (size-gated, <50KB alebo bez product schema)
 **Regression testy:** 6 fixtures (datadome, cloudflare, perimeterx, rate-limit, generic-block, etsy-product)
 
 **Výsledok:** BrightData vracia `outcome: ok` pre Etsy (522KB, 1.9s, $0.0015)
+
+### Oponent v2 - Scale readiness improvements (4. jan 2026)
+
+**Kontext:** Externý agent "Oponent" analyzoval kód a identifikoval oblasti pre zlepšenie pred scale-out.
+
+#### 1. Alert model refactor - AlertType enum + metadata JSONB
+**Commit:** `dcf348b`
+- Nový `AlertType` enum: `value_changed`, `schema_drift`, `market_context`, `budget_exceeded`, `provider_error`, `extraction_error`, `threshold_alert`
+- Pole `metadata` (JSONB) pre štruktúrované dáta (old/new hodnoty, currency, country)
+- Index na `alertType` pre efektívne filtrovanie
+- `mapChangeKindToAlertType()` helper v run.processor.ts
+
+#### 2. Float/Cents normalizácia
+**Commit:** `14236ec`
+- `valueLowCents`/`valueHighCents` (integer) pre presné porovnávanie cien
+- Vyhneme sa float precision issues (29.83 vs 29.829999)
+- `toCents()` helper v schema.ts
+- Backward-compatible: fallback na float pre staré observations
+
+**Kľúčové súbory:**
+- `packages/shared/src/domain.ts` - SchemaExtractionMeta interface
+- `packages/extractor/src/extraction/schema.ts` - toCents()
+- `packages/extractor/src/antiflap/equals.ts` - cents-first comparison
+- `apps/worker/src/utils/change-detection.ts` - cents diff calculation
+
+#### 3. SLO metriky API
+**Commit:** `4c2adad`
+- `GET /stats/slo` - comprehensive SLO dashboard:
+  - Extraction success rate (target: 95%)
+  - Cost per successful extraction
+  - Provider error rates (per-provider breakdown)
+  - Schema drift rate
+  - Latency percentiles (P50, P95, P99)
+- `GET /stats/slo/hostnames` - per-domain breakdown (worst-first)
+- Status: `healthy` | `warning` | `critical` pre každú metriku
+
+**Thresholds:**
+```typescript
+extractionSuccessRate: { healthy: 0.95, warning: 0.90 }
+costPerSuccess: { healthy: 0.01, warning: 0.02 }
+providerErrorRate: { healthy: 0.05, warning: 0.10 }
+latencyP95Ms: { healthy: 5000, warning: 10000 }
+```
+
+#### 4. Geo pinning cez FetchProfile
+**Commit:** `de4b103`
+- `geoCountry` pole v FetchProfile (ISO 3166-1 alpha-2)
+- Priority: `FetchProfile.geoCountry` → `BRIGHTDATA_COUNTRY` env → undefined
+- Umožňuje multi-market support (rôzne geo pre rôzne domény)
+
+**Príklad použitia:**
+```sql
+UPDATE fetch_profiles SET geo_country = 'cz' WHERE name = 'Czech ecommerce';
+UPDATE fetch_profiles SET geo_country = 'de' WHERE name = 'German suppliers';
+```
+
+#### 5. Aktívne domény (stav 4. jan 2026)
+17 aktívnych domén vrátane:
+- www.alza.sk (450 rules)
+- www.reifen.com (151 rules)
+- sk.iherb.com (44 rules)
+- www.amazon.com (37 rules)
+- www.etsy.com (36 rules)
+- www.walmart.com (17 rules)
