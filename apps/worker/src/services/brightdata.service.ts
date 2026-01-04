@@ -161,6 +161,20 @@ export class BrightDataService {
         };
       }
 
+      // Check for BrightData account-level rate limit (returns 200 with error headers)
+      const brdErrorCode = response.headers.get('x-brd-error-code');
+      const brdError = response.headers.get('x-brd-error');
+
+      if (brdErrorCode === 'proxy_error' && brdError?.includes('rate limit')) {
+        this.logger.warn(`[BrightData] Account rate limit hit: ${brdError}`);
+        return {
+          success: false,
+          error: `BRIGHTDATA_RATE_LIMITED: ${brdError}`,
+          httpStatus: 429, // Signal rate limit for upstream handling
+          // No cost - BrightData says "You will not be charged for this request"
+        };
+      }
+
       // Success - get HTML content
       const html = await response.text();
       const cost = PROVIDER_COSTS.brightdata.perRequest;
@@ -178,6 +192,15 @@ export class BrightDataService {
 
       // Validate response - empty responses are failures
       if (!html || html.length === 0) {
+        // Check if this is actually a rate limit (empty body with error headers)
+        if (brdErrorCode || brdError) {
+          this.logger.warn(`[BrightData] Empty response with error: ${brdErrorCode} - ${brdError}`);
+          return {
+            success: false,
+            error: `BRIGHTDATA_RATE_LIMITED: ${brdError || 'Account limit exceeded'}`,
+            httpStatus: 429,
+          };
+        }
         this.logger.error(`[BrightData] Empty response received from API`);
         return {
           success: false,
@@ -233,11 +256,11 @@ export class BrightDataService {
    * Fetch with DataDome-specific settings
    * Uses US IP for best compatibility (JS rendering is automatic)
    */
-  async fetchWithDataDomeBypass(url: string): Promise<BrightDataFetchResult> {
+  async fetchWithDataDomeBypass(url: string, timeoutMs = 60000): Promise<BrightDataFetchResult> {
     return this.fetch({
       url,
       country: 'us',
-      timeout: 90000, // DataDome solving can take longer
+      timeout: timeoutMs, // Verified account with premium domains is faster (30-50s typical)
     });
   }
 

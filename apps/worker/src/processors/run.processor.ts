@@ -194,7 +194,7 @@ export class RunProcessor extends WorkerHost {
         workspaceId: rule.source.workspaceId,
         ruleId: ruleId,
         hostname: domain,
-        timeoutMs: 90000, // Increased for paid providers (BrightData can take 50-60s for DataDome bypass)
+        timeoutMs: 60000, // 60s - verified BrightData account with premium domains is faster
         userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
         headers: rule.source.fetchProfile?.headers
           ? (rule.source.fetchProfile.headers as Record<string, string>)
@@ -219,6 +219,105 @@ export class RunProcessor extends WorkerHost {
 
       // Execute fetch with orchestrator
       const orchestratorResult = await this.fetchOrchestrator.fetch(fetchRequest, orchestratorConfig);
+
+      // Handle rate_limited outcome - defer job instead of failing
+      // This implements "rate_limited → deferred" pattern from Oponent review
+      if (orchestratorResult.final.outcome === 'rate_limited') {
+        const currentRetryCount = job.data.rateLimitRetryCount ?? 0;
+        const MAX_RATE_LIMIT_RETRIES = 2;
+
+        if (currentRetryCount < MAX_RATE_LIMIT_RETRIES) {
+          // Calculate delay with jitter: 60-180s base + random 0-30s
+          const baseDelayMs = 60000 + (currentRetryCount * 60000); // 60s, then 120s
+          const jitterMs = Math.floor(Math.random() * 30000);
+          const delayMs = baseDelayMs + jitterMs;
+
+          this.logger.warn(
+            `[Job ${job.id}] Rate limited (attempt ${currentRetryCount + 1}/${MAX_RATE_LIMIT_RETRIES}), deferring ${Math.round(delayMs / 1000)}s`,
+          );
+
+          // Re-enqueue with delay (BullMQ deferred retry)
+          await this.queueService.enqueueRuleRun(
+            {
+              ...job.data,
+              trigger: 'retry',
+              rateLimitRetryCount: currentRetryCount + 1,
+            },
+            { delay: delayMs },
+          );
+
+          // Update run record with deferred status
+          await this.prisma.run.update({
+            where: { id: run.id },
+            data: {
+              errorCode: 'RATE_LIMITED_DEFERRED',
+              errorDetail: `Deferred retry ${currentRetryCount + 1}/${MAX_RATE_LIMIT_RETRIES}, delay ${Math.round(delayMs / 1000)}s`,
+              finishedAt: new Date(),
+            },
+          });
+
+          return {
+            success: false,
+            deferred: true,
+            reason: 'rate_limited',
+            retryCount: currentRetryCount + 1,
+            delayMs,
+          };
+        }
+
+        // Max retries exceeded - fall through to normal error handling
+        this.logger.error(
+          `[Job ${job.id}] Rate limited - max retries (${MAX_RATE_LIMIT_RETRIES}) exceeded`,
+        );
+      }
+
+      // Handle timeout outcome - 1x retry with backoff
+      if (orchestratorResult.final.outcome === 'timeout') {
+        const currentTimeoutRetry = job.data.timeoutRetryCount ?? 0;
+        const MAX_TIMEOUT_RETRIES = 1;
+
+        if (currentTimeoutRetry < MAX_TIMEOUT_RETRIES) {
+          // 30s delay for timeout retry
+          const delayMs = 30000;
+
+          this.logger.warn(
+            `[Job ${job.id}] Timeout, scheduling 1x retry in ${delayMs / 1000}s`,
+          );
+
+          // Re-enqueue with delay
+          await this.queueService.enqueueRuleRun(
+            {
+              ...job.data,
+              trigger: 'retry',
+              timeoutRetryCount: currentTimeoutRetry + 1,
+            },
+            { delay: delayMs },
+          );
+
+          // Update run record
+          await this.prisma.run.update({
+            where: { id: run.id },
+            data: {
+              errorCode: 'TIMEOUT_RETRY_SCHEDULED',
+              errorDetail: `Timeout retry scheduled, delay ${delayMs / 1000}s`,
+              finishedAt: new Date(),
+            },
+          });
+
+          return {
+            success: false,
+            deferred: true,
+            reason: 'timeout',
+            retryCount: currentTimeoutRetry + 1,
+            delayMs,
+          };
+        }
+
+        // Max retries exceeded - fall through to normal error handling
+        this.logger.error(
+          `[Job ${job.id}] Timeout - max retries (${MAX_TIMEOUT_RETRIES}) exceeded`,
+        );
+      }
 
       // Extract HTML from result
       const fetchHtml = orchestratorResult.html || '';
@@ -268,6 +367,7 @@ export class RunProcessor extends WorkerHost {
           'provider_error': 'SYSTEM_WORKER_CRASH',
           'empty': 'EXTRACT_EMPTY_VALUE',
           'preferred_unavailable': 'PREFERRED_PROVIDER_UNAVAILABLE',  // P0: preferredProvider not available
+          'rate_limited': 'RATE_LIMITED_MAX_RETRIES',  // Rate limited and max deferred retries exceeded
         };
         const errorCode = errorCodeMap[orchestratorResult.final.outcome] || 'UNKNOWN';
 
