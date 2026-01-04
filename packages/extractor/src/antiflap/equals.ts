@@ -29,26 +29,38 @@ export function equals(a: any, b: any): boolean {
     return false;
   }
 
-  // For prices: compare using low-first strategy
-  // Use valueLow (from schema extraction) or fallback to value
+  // For prices: compare using low-first strategy with cents for precision
+  // Prefer valueLowCents (integer cents) to avoid float rounding issues
+  // Fallback to valueLow/value for backward compatibility
   // Ignore valueHigh to prevent range-based flapping
   // Compare currency AND country (if both have it) - market context must match
   if (
     typeof a === 'object' &&
-    ('value' in a || 'valueLow' in a) &&
+    ('value' in a || 'valueLow' in a || 'valueLowCents' in a) &&
     typeof b === 'object' &&
-    ('value' in b || 'valueLow' in b)
+    ('value' in b || 'valueLow' in b || 'valueLowCents' in b)
   ) {
-    const aLow = a.valueLow ?? a.value;
-    const bLow = b.valueLow ?? b.value;
-
     // Country mismatch = different market context (even if same currency)
     // Only compare if both have country (backward compat with old observations)
     if (a.country && b.country && a.country !== b.country) {
       return false;
     }
 
-    return aLow === bLow && a.currency === b.currency;
+    // Currency must match
+    if (a.currency !== b.currency) {
+      return false;
+    }
+
+    // Prefer cents comparison (integer, no float issues)
+    // Fallback to float comparison for backward compatibility
+    if (a.valueLowCents !== undefined && b.valueLowCents !== undefined) {
+      return a.valueLowCents === b.valueLowCents;
+    }
+
+    // Fallback: compare float values (legacy observations)
+    const aLow = a.valueLow ?? a.value;
+    const bLow = b.valueLow ?? b.value;
+    return aLow === bLow;
   }
 
   // For availability: compare status and lead time

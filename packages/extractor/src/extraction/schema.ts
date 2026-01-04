@@ -33,6 +33,16 @@ const MAX_ARRAY_ITEMS = 20;
 const MAX_OFFERS_ITEMS = 200;
 
 /**
+ * Convert float price to integer cents for precise comparison.
+ * Avoids float rounding issues like 29.83 vs 29.829999999.
+ */
+function toCents(price: number | null): number | null {
+  if (price === null) return null;
+  // Round to avoid float precision issues, then convert to cents
+  return Math.round(price * 100);
+}
+
+/**
  * Commerce-related schema.org types that indicate a product entity.
  */
 const PRODUCT_TYPES = new Set([
@@ -450,6 +460,8 @@ function extractPriceFromEntity(
     currency: selectedCurrency,
     valueLow,
     valueHigh,
+    valueLowCents: toCents(valueLow),
+    valueHighCents: toCents(valueHigh),
     availabilityUrl: null,
     offersCount: candidate.offersCount,
     offersTruncated: candidate.offersCount >= MAX_OFFERS_ITEMS,
@@ -575,6 +587,8 @@ function extractAvailabilityFromEntity(
     currency: null,
     valueLow: null,
     valueHigh: null,
+    valueLowCents: null,
+    valueHighCents: null,
     availabilityUrl,
     offersCount: candidate.offersCount,
     offersTruncated: candidate.offersCount >= MAX_OFFERS_ITEMS,
@@ -712,6 +726,8 @@ function extractPriceFromMeta(html: string): SchemaExtractionResult {
     currency,
     valueLow: null,
     valueHigh: null,
+    valueLowCents: null,
+    valueHighCents: null,
     availabilityUrl: null,
     offersCount: null,
     offersTruncated: false,
@@ -752,6 +768,8 @@ function extractAvailabilityFromMeta(html: string): SchemaExtractionResult {
     currency: null,
     valueLow: null,
     valueHigh: null,
+    valueLowCents: null,
+    valueHighCents: null,
     availabilityUrl,
     offersCount: null,
     offersTruncated: false,

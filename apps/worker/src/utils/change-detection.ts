@@ -80,6 +80,13 @@ function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult 
   const oldCountry = oldValue?.country;
   const newCountry = newValue?.country;
 
+  // Use cents for comparison to avoid float precision issues (29.83 vs 29.829999)
+  // Fallback to float comparison for legacy observations
+  const oldLowCents = oldValue?.valueLowCents;
+  const newLowCents = newValue?.valueLowCents;
+  const oldHighCents = oldValue?.valueHighCents;
+  const newHighCents = newValue?.valueHighCents;
+
   // CRITICAL: Currency change (different market/geo)
   if (oldCurrency && newCurrency && oldCurrency !== newCurrency) {
     return {
@@ -104,18 +111,26 @@ function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult 
     };
   }
 
-  const lowDiff = newLow - oldLow;
+  // Compare using cents if available (integer comparison, no float issues)
+  // Otherwise fallback to float comparison
+  const useCents = oldLowCents !== undefined && newLowCents !== undefined;
+  const lowDiff = useCents ? (newLowCents - oldLowCents) / 100 : (newLow - oldLow);
+  const lowChanged = useCents ? (newLowCents !== oldLowCents) : (newLow !== oldLow);
+
   const lowPercentChange = oldLow !== 0 ? ((lowDiff / oldLow) * 100).toFixed(1) : 'N/A';
   const currency = newCurrency || oldCurrency;
 
   // PRIMARY: Low price changed
-  if (lowDiff !== 0) {
+  if (lowChanged) {
     const direction = lowDiff > 0 ? 'increased' : 'decreased';
     const sign = lowDiff > 0 ? '+' : '';
     let summary = `Price ${direction}: ${oldLow} ${currency} → ${newLow} ${currency} (${sign}${lowPercentChange}%)`;
 
     // Include range info if available
-    if (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh) {
+    const highChanged = useCents
+      ? (oldHighCents !== undefined && newHighCents !== undefined && oldHighCents !== newHighCents)
+      : (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh);
+    if (highChanged) {
       summary += ` [range also changed: ${oldHigh} → ${newHigh}]`;
     }
 
@@ -126,7 +141,10 @@ function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult 
   }
 
   // INFO ONLY: Range changed but low stayed same (no changeKind, but populate diffSummary for logging)
-  if (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh) {
+  const highChanged = useCents
+    ? (oldHighCents !== undefined && newHighCents !== undefined && oldHighCents !== newHighCents)
+    : (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh);
+  if (highChanged) {
     return {
       changeKind: null, // Not a "real" change for alerting purposes
       diffSummary: `Price range changed: ${oldLow}-${oldHigh} ${currency} → ${newLow}-${newHigh} ${currency} (low unchanged)`,

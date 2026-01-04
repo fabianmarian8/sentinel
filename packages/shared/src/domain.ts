@@ -200,6 +200,9 @@ export interface SchemaExtractionMeta {
   currency: string | null;
   valueLow: number | null;
   valueHigh: number | null;
+  // Integer cents for precise comparison (avoids float rounding issues)
+  valueLowCents: number | null;
+  valueHighCents: number | null;
   availabilityUrl: string | null;
   offersCount: number | null;
   offersTruncated: boolean;
