@@ -20,14 +20,23 @@ export class ConcurrencySemaphoreService {
   private readonly redis: Redis;
 
   /**
-   * Paid providers with concurrency limits
+   * Paid providers with per-hostname concurrency limits
    * Key: provider ID, Value: max concurrent requests per hostname
    */
   private readonly paidProviderLimits: Record<string, number> = {
-    brightdata: 2, // Increased from 1 - verified account handles 2 concurrent
+    brightdata: 2, // Per-hostname limit
     scraping_browser: 1,
     twocaptcha_proxy: 2,
     twocaptcha_datadome: 1,
+  };
+
+  /**
+   * Global concurrency limits (across all hostnames)
+   * For trial accounts with global rate limits
+   * Key: provider ID, Value: max total concurrent requests
+   */
+  private readonly globalProviderLimits: Record<string, number> = {
+    brightdata: 2, // Trial account has ~2 concurrent global limit
   };
 
   /**
@@ -52,10 +61,31 @@ export class ConcurrencySemaphoreService {
   }
 
   /**
-   * Generate Redis key for concurrency semaphore
+   * Generate Redis key for per-hostname concurrency semaphore
    */
   private getKey(hostname: string, provider: ProviderId): string {
     return `concurrency:${provider}:${hostname}`;
+  }
+
+  /**
+   * Generate Redis key for global provider concurrency
+   */
+  private getGlobalKey(provider: ProviderId): string {
+    return `concurrency:${provider}:__global__`;
+  }
+
+  /**
+   * Check if provider has global concurrency limit
+   */
+  hasGlobalLimit(provider: ProviderId): boolean {
+    return provider in this.globalProviderLimits;
+  }
+
+  /**
+   * Get max global concurrent requests for provider
+   */
+  getMaxGlobalConcurrent(provider: ProviderId): number {
+    return this.globalProviderLimits[provider] ?? Infinity;
   }
 
   /**
@@ -74,6 +104,7 @@ export class ConcurrencySemaphoreService {
 
   /**
    * Try to acquire a lease for executing a request
+   * Checks BOTH global limit and per-hostname limit
    *
    * @param hostname - Target hostname
    * @param provider - Provider ID
@@ -85,12 +116,47 @@ export class ConcurrencySemaphoreService {
     provider: ProviderId,
     leaseId: string,
   ): Promise<{ acquired: boolean; currentCount: number; waitSuggestionMs?: number }> {
+    // First check global limit (for trial accounts)
+    const maxGlobal = this.getMaxGlobalConcurrent(provider);
+    if (maxGlobal !== Infinity) {
+      const globalResult = await this.tryAcquireInternal(
+        this.getGlobalKey(provider),
+        `${leaseId}:global`,
+        maxGlobal,
+      );
+      if (!globalResult.acquired) {
+        this.logger.debug(
+          `[Concurrency] ${provider} global limit reached (${globalResult.currentCount}/${maxGlobal}), suggest wait ${globalResult.waitSuggestionMs}ms`,
+        );
+        return globalResult;
+      }
+    }
+
+    // Then check per-hostname limit
     const maxConcurrent = this.getMaxConcurrent(provider);
     if (maxConcurrent === Infinity) {
       return { acquired: true, currentCount: 0 };
     }
 
     const key = this.getKey(hostname, provider);
+    const result = await this.tryAcquireInternal(key, leaseId, maxConcurrent);
+
+    // If per-hostname failed but we acquired global, release global
+    if (!result.acquired && maxGlobal !== Infinity) {
+      await this.redis.zrem(this.getGlobalKey(provider), `${leaseId}:global`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Internal method for atomic lease acquisition
+   */
+  private async tryAcquireInternal(
+    key: string,
+    leaseId: string,
+    maxConcurrent: number,
+  ): Promise<{ acquired: boolean; currentCount: number; waitSuggestionMs?: number }> {
 
     // Lua script for atomic check-and-increment with TTL refresh
     const script = `
@@ -139,7 +205,7 @@ export class ConcurrencySemaphoreService {
 
       if (!acquired) {
         this.logger.debug(
-          `[Concurrency] ${provider}@${hostname} at capacity (${currentCount}/${maxConcurrent}), suggest wait ${waitSuggestionMs}ms`,
+          `[Concurrency] ${key} at capacity (${currentCount}/${maxConcurrent}), suggest wait ${waitSuggestionMs}ms`,
         );
       }
 
@@ -160,20 +226,30 @@ export class ConcurrencySemaphoreService {
 
   /**
    * Release a lease after request completion
+   * Releases BOTH global and per-hostname leases
    *
    * @param hostname - Target hostname
    * @param provider - Provider ID
    * @param leaseId - Unique identifier for this lease
    */
   async release(hostname: string, provider: ProviderId, leaseId: string): Promise<void> {
-    if (!this.hasConcurrencyLimit(provider)) {
+    if (!this.hasConcurrencyLimit(provider) && !this.hasGlobalLimit(provider)) {
       return;
     }
 
-    const key = this.getKey(hostname, provider);
-
     try {
-      await this.redis.zrem(key, leaseId);
+      // Release per-hostname lease
+      if (this.hasConcurrencyLimit(provider)) {
+        const key = this.getKey(hostname, provider);
+        await this.redis.zrem(key, leaseId);
+      }
+
+      // Release global lease
+      if (this.hasGlobalLimit(provider)) {
+        const globalKey = this.getGlobalKey(provider);
+        await this.redis.zrem(globalKey, `${leaseId}:global`);
+      }
+
       this.logger.debug(`[Concurrency] Released lease ${leaseId} for ${provider}@${hostname}`);
     } catch (error) {
       this.logger.error(
