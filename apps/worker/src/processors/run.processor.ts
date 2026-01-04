@@ -343,6 +343,29 @@ export class RunProcessor extends WorkerHost {
               this.logger.warn(
                 `[Job ${job.id}] Schema drift detected: ${drift.reason}`,
               );
+
+              // Create Alert for schema drift (with dedupe to prevent duplicates)
+              const newShapeHash = schemaResult.meta.fingerprint.shapeHash;
+              const dedupeKey = `schema_drift:${ruleId}:${newShapeHash}`;
+              try {
+                await this.prisma.alert.create({
+                  data: {
+                    ruleId,
+                    triggeredAt: new Date(),
+                    severity: 'medium',
+                    title: 'Schema drift detected',
+                    body: drift.reason,
+                    dedupeKey,
+                    channelsSent: [],
+                  },
+                });
+                this.logger.log(`[Job ${job.id}] Schema drift alert created (dedupeKey: ${dedupeKey})`);
+              } catch (error: any) {
+                // Ignore duplicate key constraint (P2002) - alert already exists for this drift
+                if (error?.code !== 'P2002') {
+                  this.logger.error(`[Job ${job.id}] Failed to create schema drift alert: ${error.message}`);
+                }
+              }
             }
           }
 
@@ -537,6 +560,7 @@ export class RunProcessor extends WorkerHost {
             valueHigh: schemaExtractMeta.valueHigh,
             source: schemaExtractMeta.source, // 'jsonld' or 'meta'
             currencyConflict: schemaExtractMeta.currencyConflict,
+            country: orchestratorResult.country, // Geo context for currency stability
           };
         } else if (ruleType === 'availability') {
           normalizedValue = {

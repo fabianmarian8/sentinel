@@ -29,14 +29,18 @@ export function equals(a: any, b: any): boolean {
     return false;
   }
 
-  // For prices: compare numeric value and currency
+  // For prices: compare using low-first strategy
+  // Use valueLow (from schema extraction) or fallback to value
+  // Ignore valueHigh to prevent range-based flapping
   if (
     typeof a === 'object' &&
-    'value' in a &&
+    ('value' in a || 'valueLow' in a) &&
     typeof b === 'object' &&
-    'value' in b
+    ('value' in b || 'valueLow' in b)
   ) {
-    return a.value === b.value && a.currency === b.currency;
+    const aLow = a.valueLow ?? a.value;
+    const bLow = b.valueLow ?? b.value;
+    return aLow === bLow && a.currency === b.currency;
   }
 
   // For availability: compare status and lead time

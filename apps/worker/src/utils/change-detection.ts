@@ -62,34 +62,70 @@ export function detectChange(
 }
 
 /**
- * Detect price changes
+ * Detect price changes using low-first strategy
+ *
+ * Priority:
+ * 1. Currency change = CRITICAL (format_changed)
+ * 2. Low price change = PRIMARY signal (value_changed)
+ * 3. High price change = INFO only (no changeKind, but diffSummary populated)
  */
 function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult {
-  const oldPrice = oldValue?.value ?? oldValue;
-  const newPrice = newValue?.value ?? newValue;
-  const currency = newValue?.currency ?? '';
+  // Use valueLow (from schema extraction) or fallback to value
+  const oldLow = oldValue?.valueLow ?? oldValue?.value ?? oldValue;
+  const newLow = newValue?.valueLow ?? newValue?.value ?? newValue;
+  const oldHigh = oldValue?.valueHigh;
+  const newHigh = newValue?.valueHigh;
+  const oldCurrency = oldValue?.currency ?? '';
+  const newCurrency = newValue?.currency ?? '';
 
-  if (typeof oldPrice !== 'number' || typeof newPrice !== 'number') {
+  // CRITICAL: Currency change (different market/geo)
+  if (oldCurrency && newCurrency && oldCurrency !== newCurrency) {
+    return {
+      changeKind: 'format_changed' as ChangeKind,
+      diffSummary: `Currency changed: ${oldLow} ${oldCurrency} → ${newLow} ${newCurrency} (different market context)`,
+    };
+  }
+
+  if (typeof oldLow !== 'number' || typeof newLow !== 'number') {
     return {
       changeKind: 'format_changed' as ChangeKind,
       diffSummary: 'Price format changed',
     };
   }
 
-  const diff = newPrice - oldPrice;
-  const percentChange = ((diff / oldPrice) * 100).toFixed(1);
+  const lowDiff = newLow - oldLow;
+  const lowPercentChange = oldLow !== 0 ? ((lowDiff / oldLow) * 100).toFixed(1) : 'N/A';
+  const currency = newCurrency || oldCurrency;
 
-  if (diff > 0) {
+  // PRIMARY: Low price changed
+  if (lowDiff !== 0) {
+    const direction = lowDiff > 0 ? 'increased' : 'decreased';
+    const sign = lowDiff > 0 ? '+' : '';
+    let summary = `Price ${direction}: ${oldLow} ${currency} → ${newLow} ${currency} (${sign}${lowPercentChange}%)`;
+
+    // Include range info if available
+    if (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh) {
+      summary += ` [range also changed: ${oldHigh} → ${newHigh}]`;
+    }
+
     return {
       changeKind: 'value_changed' as ChangeKind,
-      diffSummary: `Price increased: ${oldPrice} ${currency} → ${newPrice} ${currency} (+${percentChange}%)`,
-    };
-  } else {
-    return {
-      changeKind: 'value_changed' as ChangeKind,
-      diffSummary: `Price decreased: ${oldPrice} ${currency} → ${newPrice} ${currency} (${percentChange}%)`,
+      diffSummary: summary,
     };
   }
+
+  // INFO ONLY: Range changed but low stayed same (no changeKind, but populate diffSummary for logging)
+  if (oldHigh !== undefined && newHigh !== undefined && oldHigh !== newHigh) {
+    return {
+      changeKind: null, // Not a "real" change for alerting purposes
+      diffSummary: `Price range changed: ${oldLow}-${oldHigh} ${currency} → ${newLow}-${newHigh} ${currency} (low unchanged)`,
+    };
+  }
+
+  return {
+    changeKind: null,
+    diffSummary: null,
+  };
 }
 
 /**

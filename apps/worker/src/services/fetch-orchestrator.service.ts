@@ -33,6 +33,8 @@ export interface OrchestratorResult {
   attempts: FetchResult[];
   html?: string;
   rawSample?: string;  // First 50KB of HTML for debugging problematic fetches
+  /** Geo context used for successful fetch (for currency stability) */
+  country?: string;
 }
 
 /**
@@ -46,6 +48,8 @@ interface ProviderRawResult {
   latencyMs?: number;
   errorDetail?: string;
   contentType?: string;
+  /** Geo context used (e.g., 'US', 'DE') - for currency stability tracking */
+  country?: string;
 }
 
 type ProviderCandidate = {
@@ -80,6 +84,7 @@ export class FetchOrchestratorService {
     const attempts: FetchResult[] = [];
     let finalHtml: string | undefined;
     let rawSampleHtml: string | undefined;
+    let successfulCountry: string | undefined;
 
     // Build provider candidates (free first, then paid if allowed)
     const candidates = this.buildCandidates(req, config);
@@ -188,6 +193,7 @@ export class FetchOrchestratorService {
           latencyMs,
           errorDetail: providerResult.errorDetail,
           signals: classification.signals,
+          country: providerResult.country, // Geo context for price normalization
         };
 
         // Log attempt
@@ -212,6 +218,7 @@ export class FetchOrchestratorService {
         if (classification.outcome === 'ok' && providerResult.html) {
           this.logger.log(`[Orchestrator] Success with ${candidate.id} (${latencyMs}ms, $${providerResult.costUsd.toFixed(4)})`);
           finalHtml = providerResult.html;
+          successfulCountry = providerResult.country; // Track geo context for normalization
           break;
         }
 
@@ -280,6 +287,7 @@ export class FetchOrchestratorService {
       attempts,
       html: finalHtml,
       rawSample: this.extractRawSample(finalResult, rawSampleHtml),
+      country: successfulCountry, // Geo context for price normalization
     };
   }
 
@@ -413,6 +421,7 @@ export class FetchOrchestratorService {
               costUsd: result.cost ?? 0,
               httpStatus: result.httpStatus,
               errorDetail: result.error,
+              country, // Pass geo context for price normalization
             };
           },
         });

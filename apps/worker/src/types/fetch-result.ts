@@ -70,6 +70,8 @@ export interface FetchResult {
   costUnits?: number;
   latencyMs?: number;
   errorDetail?: string;
+  /** Geo context used for this fetch (e.g., 'US', 'DE') - critical for currency stability */
+  country?: string;
 }
 
 export interface IFetchProvider {
