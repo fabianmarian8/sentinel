@@ -54,6 +54,9 @@ export interface FetchRequest {
   disabledProviders?: ProviderId[];
   // PR4: Stop after preferred provider failure (don't try other providers)
   stopAfterPreferredFailure?: boolean;
+  // Geo pinning: ISO 3166-1 alpha-2 country code for BrightData proxy location
+  // Use for currency stability (e.g., 'cz' for Czech prices, 'de' for German)
+  geoCountry?: string;
 }
 
 export interface FetchResult {

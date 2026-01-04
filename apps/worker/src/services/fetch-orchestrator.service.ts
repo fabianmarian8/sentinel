@@ -407,8 +407,9 @@ export class FetchOrchestratorService {
           id: 'brightdata',
           isPaid: true,
           execute: async () => {
-            // Use BRIGHTDATA_COUNTRY env var for consistent geo (currency stability)
-            const country = process.env.BRIGHTDATA_COUNTRY || undefined;
+            // Priority: FetchProfile.geoCountry -> BRIGHTDATA_COUNTRY env var -> undefined
+            // FetchProfile enables per-domain geo targeting for multi-market support
+            const country = req.geoCountry || process.env.BRIGHTDATA_COUNTRY || undefined;
             const result = await this.brightdata.fetch({
               url: req.url,
               timeout: req.timeoutMs,

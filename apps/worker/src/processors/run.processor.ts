@@ -207,6 +207,8 @@ export class RunProcessor extends WorkerHost {
         // PR4: Domain policy - disabled providers and stop behavior
         disabledProviders: rule.source.fetchProfile?.disabledProviders as FetchRequest['disabledProviders'],
         stopAfterPreferredFailure: rule.source.fetchProfile?.stopAfterPreferredFailure ?? undefined,
+        // Geo pinning: per-profile country for BrightData proxy (currency stability)
+        geoCountry: rule.source.fetchProfile?.geoCountry ?? undefined,
       };
 
       // Build OrchestratorConfig
