@@ -399,9 +399,12 @@ export class FetchOrchestratorService {
           id: 'brightdata',
           isPaid: true,
           execute: async () => {
+            // Use BRIGHTDATA_COUNTRY env var for consistent geo (currency stability)
+            const country = process.env.BRIGHTDATA_COUNTRY || undefined;
             const result = await this.brightdata.fetch({
               url: req.url,
               timeout: req.timeoutMs,
+              country,
             });
 
             return {
