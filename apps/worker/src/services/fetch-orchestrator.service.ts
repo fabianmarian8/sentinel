@@ -19,6 +19,7 @@ import { TwoCaptchaService } from './twocaptcha.service';
 import { BrightDataService } from './brightdata.service';
 import { ScrapingBrowserService } from './scraping-browser.service';
 import { RateLimiterService } from './rate-limiter.service';
+import { ConcurrencySemaphoreService } from './concurrency-semaphore.service';
 import { determineFetchOutcome } from '../utils/fetch-classifiers';
 import type { FetchRequest, FetchResult, ProviderId, FetchOutcome, BlockKind } from '../types/fetch-result';
 
@@ -70,6 +71,7 @@ export class FetchOrchestratorService {
     private readonly brightdata: BrightDataService,
     private readonly scrapingBrowser: ScrapingBrowserService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly concurrencySemaphore: ConcurrencySemaphoreService,
   ) {}
 
   /**
@@ -85,6 +87,9 @@ export class FetchOrchestratorService {
     let finalHtml: string | undefined;
     let rawSampleHtml: string | undefined;
     let successfulCountry: string | undefined;
+
+    // Track skip reasons to determine appropriate final outcome
+    const skipReasons: { providerId: ProviderId; reason: 'circuit_breaker' | 'rate_limit' | 'concurrency' | 'budget' }[] = [];
 
     // Build provider candidates (free first, then paid if allowed)
     const candidates = this.buildCandidates(req, config);
@@ -140,6 +145,7 @@ export class FetchOrchestratorService {
       const canExecute = await this.circuitBreaker.canExecute(req.workspaceId, req.hostname, candidate.id);
       if (!canExecute) {
         this.logger.debug(`[Orchestrator] Circuit breaker OPEN for ${candidate.id}@${req.hostname}, skipping`);
+        skipReasons.push({ providerId: candidate.id, reason: 'circuit_breaker' });
         continue;
       }
 
@@ -147,6 +153,7 @@ export class FetchOrchestratorService {
       const rateLimitResult = await this.rateLimiter.consumeToken(req.hostname, candidate.id);
       if (!rateLimitResult.allowed) {
         this.logger.debug(`[Orchestrator] Rate limit for ${candidate.id}@${req.hostname}, skipping`);
+        skipReasons.push({ providerId: candidate.id, reason: 'rate_limit' });
         continue;
       }
 
@@ -162,8 +169,30 @@ export class FetchOrchestratorService {
 
         if (!budgetStatus.canSpendPaid) {
           this.logger.warn(`[Orchestrator] Budget exceeded for ${candidate.id}: ${budgetStatus.reason}`);
+          skipReasons.push({ providerId: candidate.id, reason: 'budget' });
           continue;
         }
+      }
+
+      // Check concurrency limit for paid providers (prevents timeout cascades)
+      const leaseId = `${req.ruleId}-${Date.now()}`;
+      let leaseAcquired = false;
+
+      if (candidate.isPaid && this.concurrencySemaphore.hasConcurrencyLimit(candidate.id)) {
+        const concurrencyResult = await this.concurrencySemaphore.tryAcquire(
+          req.hostname,
+          candidate.id,
+          leaseId,
+        );
+
+        if (!concurrencyResult.acquired) {
+          this.logger.debug(
+            `[Orchestrator] Concurrency limit for ${candidate.id}@${req.hostname} (${concurrencyResult.currentCount} in-flight), skipping`,
+          );
+          skipReasons.push({ providerId: candidate.id, reason: 'concurrency' });
+          continue;
+        }
+        leaseAcquired = true;
       }
 
       // Execute provider
@@ -269,18 +298,72 @@ export class FetchOrchestratorService {
           this.logger.log(`[Orchestrator] Preferred provider ${candidate.id} failed, stopping (stopAfterPreferredFailure=true)`);
           break;
         }
+      } finally {
+        // Always release concurrency lease
+        if (leaseAcquired) {
+          await this.concurrencySemaphore.release(req.hostname, candidate.id, leaseId);
+        }
       }
     }
 
     // Build final result
-    const finalResult: FetchResult = attempts[attempts.length - 1] ?? {
-      provider: 'http',
-      outcome: 'network_error',
-      bodyBytes: 0,
-      costUsd: 0,
-      signals: ['no_providers_available'],
-      errorDetail: 'No providers available or all failed',
-    };
+    let finalResult: FetchResult;
+
+    if (attempts.length > 0) {
+      // Use the last actual attempt
+      finalResult = attempts[attempts.length - 1];
+    } else {
+      // No providers executed - determine why based on skip reasons
+      const rateLimitSkips = skipReasons.filter(s => s.reason === 'rate_limit' || s.reason === 'concurrency');
+      const budgetSkips = skipReasons.filter(s => s.reason === 'budget');
+      const circuitBreakerSkips = skipReasons.filter(s => s.reason === 'circuit_breaker');
+
+      // If any provider was skipped due to rate limiting or concurrency, return rate_limited
+      // This enables deferred retry logic in run.processor.ts
+      if (rateLimitSkips.length > 0) {
+        const skippedProviders = rateLimitSkips.map(s => s.providerId).join(', ');
+        this.logger.warn(`[Orchestrator] All providers rate limited or concurrency limited: ${skippedProviders}`);
+
+        finalResult = {
+          provider: rateLimitSkips[0].providerId,
+          outcome: 'rate_limited',
+          bodyBytes: 0,
+          costUsd: 0,
+          signals: ['providers_rate_limited', ...rateLimitSkips.map(s => `${s.providerId}_${s.reason}`)],
+          errorDetail: `All providers skipped due to rate/concurrency limits: ${skippedProviders}`,
+        };
+      } else if (budgetSkips.length > 0) {
+        // Budget exceeded
+        finalResult = {
+          provider: budgetSkips[0].providerId,
+          outcome: 'network_error',
+          bodyBytes: 0,
+          costUsd: 0,
+          signals: ['budget_exceeded', ...budgetSkips.map(s => `${s.providerId}_budget`)],
+          errorDetail: 'Budget exceeded for all paid providers',
+        };
+      } else if (circuitBreakerSkips.length > 0) {
+        // Circuit breaker open
+        finalResult = {
+          provider: circuitBreakerSkips[0].providerId,
+          outcome: 'network_error',
+          bodyBytes: 0,
+          costUsd: 0,
+          signals: ['circuit_breaker_open', ...circuitBreakerSkips.map(s => `${s.providerId}_circuit_breaker`)],
+          errorDetail: 'Circuit breaker open for all providers',
+        };
+      } else {
+        // Generic no providers available
+        finalResult = {
+          provider: 'http',
+          outcome: 'network_error',
+          bodyBytes: 0,
+          costUsd: 0,
+          signals: ['no_providers_available'],
+          errorDetail: 'No providers available or all failed',
+        };
+      }
+    }
 
     return {
       final: finalResult,

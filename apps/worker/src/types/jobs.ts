@@ -21,6 +21,19 @@ export interface RunJobPayload {
 
   /** Enable debug logging for this job */
   debug?: boolean;
+
+  /**
+   * Rate limit retry tracking - number of times this job was deferred due to rate limiting.
+   * Used to limit retries and prevent infinite loops.
+   * Max 2 retries allowed (60-180s delay each).
+   */
+  rateLimitRetryCount?: number;
+
+  /**
+   * Timeout retry tracking - number of times this job was retried due to timeout.
+   * Used to implement 1x timeout retry with backoff.
+   */
+  timeoutRetryCount?: number;
 }
 
 /**
