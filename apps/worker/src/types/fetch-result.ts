@@ -23,6 +23,7 @@ export type FetchOutcome =
   | 'timeout'
   | 'network_error'
   | 'provider_error'
+  | 'rate_limited'            // Provider-level rate limit (retry later)
   | 'preferred_unavailable';  // P0: preferredProvider not available (allowPaid=false or disabled)
 
 export type BlockKind =
