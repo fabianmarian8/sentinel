@@ -181,11 +181,29 @@ UPDATE fetch_profiles SET geo_country = 'cz' WHERE name = 'Czech ecommerce';
 UPDATE fetch_profiles SET geo_country = 'de' WHERE name = 'German suppliers';
 ```
 
-#### 5. Aktívne domény (stav 4. jan 2026)
+#### 5. Hostile domain policy (Etsy, Amazon, DataDome sites)
+**Problém:** Fallback zoo (http→headless→flaresolverr→brightdata) spôsobuje:
+- Zbytočné requesty pred paid providerom
+- Zvýšenú pravdepodobnosť challenge
+- Zhoršený SLO
+
+**Riešenie pre hostile domény:**
+```sql
+UPDATE fetch_profiles SET
+  preferred_provider = 'brightdata',
+  disabled_providers = '{http,headless,flaresolverr,twocaptcha_proxy,twocaptcha_datadome,scraping_browser}',
+  stop_after_preferred_failure = true,
+  geo_country = 'us'
+WHERE name LIKE '%Etsy%' OR name LIKE '%DataDome%';
+```
+
+**Circuit breaker:** 3 failures v 10 min → cooldown 15min → 60min → 6h
+
+#### 6. Aktívne domény (stav 4. jan 2026)
 17 aktívnych domén vrátane:
 - www.alza.sk (450 rules)
 - www.reifen.com (151 rules)
 - sk.iherb.com (44 rules)
 - www.amazon.com (37 rules)
-- www.etsy.com (36 rules)
+- www.etsy.com (36 rules) - **brightdata-only, geo=us**
 - www.walmart.com (17 rules)
