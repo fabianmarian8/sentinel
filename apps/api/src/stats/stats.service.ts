@@ -352,6 +352,63 @@ export class StatsService {
   }
 
   /**
+   * Get global SLO metrics (admin only, no workspace filter)
+   * For internal monitoring dashboard
+   */
+  async getGlobalSloMetricsByHostname(hours: number = 24): Promise<
+    Array<{
+      hostname: string;
+      successRate: number;
+      costUsd: number;
+      attempts: number;
+      status: 'healthy' | 'warning' | 'critical';
+    }>
+  > {
+    const fromDate = new Date();
+    fromDate.setTime(fromDate.getTime() - hours * 60 * 60 * 1000);
+
+    const stats = await this.prisma.fetchAttempt.groupBy({
+      by: ['hostname'],
+      where: {
+        createdAt: { gte: fromDate },
+      },
+      _count: true,
+      _sum: { costUsd: true },
+    });
+
+    // Get success counts per hostname
+    const successStats = await this.prisma.fetchAttempt.groupBy({
+      by: ['hostname'],
+      where: {
+        createdAt: { gte: fromDate },
+        outcome: 'ok',
+      },
+      _count: true,
+    });
+
+    const successByHostname = new Map(successStats.map((s) => [s.hostname, s._count]));
+
+    return stats
+      .map((stat) => {
+        const successCount = successByHostname.get(stat.hostname) ?? 0;
+        const successRate = stat._count > 0 ? successCount / stat._count : 1;
+        return {
+          hostname: stat.hostname ?? 'unknown',
+          successRate,
+          costUsd: stat._sum.costUsd ?? 0,
+          attempts: stat._count,
+          status: this.getStatus(
+            successRate,
+            SLO_THRESHOLDS.extractionSuccessRate.healthy,
+            SLO_THRESHOLDS.extractionSuccessRate.warning,
+            true,
+          ),
+        };
+      })
+      .sort((a, b) => a.successRate - b.successRate); // Worst first
+  }
+
+  /**
    * Calculate percentile from sorted array
    */
   private percentile(sortedValues: number[], p: number): number {
