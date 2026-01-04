@@ -7,6 +7,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Min,
   Max,
 } from 'class-validator';
@@ -85,4 +86,13 @@ export class CreateFetchProfileDto {
   @IsOptional()
   @IsBoolean()
   screenshotOnChange?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'ISO 3166-1 alpha-2 country code for geo pinning (e.g., "cz", "de", "us"). Used for BrightData proxy location to ensure currency stability.',
+    example: 'cz',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z]{2}$/, { message: 'geoCountry must be a lowercase ISO 3166-1 alpha-2 code (e.g., "cz", "de")' })
+  geoCountry?: string;
 }

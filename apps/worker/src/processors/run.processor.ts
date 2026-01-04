@@ -587,6 +587,9 @@ export class RunProcessor extends WorkerHost {
             currency: schemaExtractMeta.currency, // Use extracted currency, not config
             valueLow: schemaExtractMeta.valueLow,
             valueHigh: schemaExtractMeta.valueHigh,
+            // Cents for precise comparison (avoids float precision issues like 29.83 vs 29.829999)
+            valueLowCents: schemaExtractMeta.valueLowCents,
+            valueHighCents: schemaExtractMeta.valueHighCents,
             source: schemaExtractMeta.source, // 'jsonld' or 'meta'
             currencyConflict: schemaExtractMeta.currencyConflict,
             country: orchestratorResult.country, // Geo context for currency stability

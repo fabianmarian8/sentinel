@@ -227,6 +227,7 @@ export class FetchProfilesService {
         flareSolverrWaitSeconds: dto.flareSolverrWaitSeconds,
         renderWaitMs: dto.renderWaitMs,
         screenshotOnChange: dto.screenshotOnChange ?? false,
+        geoCountry: dto.geoCountry,
       },
       include: {
         _count: {
@@ -343,6 +344,7 @@ export class FetchProfilesService {
         flareSolverrWaitSeconds: dto.flareSolverrWaitSeconds,
         renderWaitMs: dto.renderWaitMs,
         screenshotOnChange: dto.screenshotOnChange,
+        geoCountry: dto.geoCountry,
       },
       include: {
         _count: {
