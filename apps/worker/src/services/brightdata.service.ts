@@ -114,18 +114,23 @@ export class BrightDataService {
       }
 
       // Check for API errors
+      // IMPORTANT: BrightData bills for requests even on errors (except auth failures)
+      // We must track cost to avoid budget underreporting
+      const estimatedCost = PROVIDER_COSTS.brightdata.perRequest;
+
       if (!response.ok) {
         const errorText = await response.text();
         this.logger.error(
           `[BrightData] API error ${response.status}: ${errorText}`,
         );
 
-        // Parse common errors
+        // Parse common errors - auth failures are NOT billed
         if (response.status === 401) {
           return {
             success: false,
             error: 'BRIGHTDATA_AUTH_FAILED: Invalid API token',
             httpStatus: 401,
+            // No cost - auth failure before request was processed
           };
         }
 
@@ -134,6 +139,7 @@ export class BrightDataService {
             success: false,
             error: 'BRIGHTDATA_INSUFFICIENT_BALANCE: Top up required',
             httpStatus: 402,
+            // No cost - balance check before request
           };
         }
 
@@ -142,13 +148,16 @@ export class BrightDataService {
             success: false,
             error: 'BRIGHTDATA_ZONE_INACTIVE: Zone not active or wrong name',
             httpStatus: 403,
+            // No cost - zone validation before request
           };
         }
 
+        // 5xx and other errors ARE billed - request was attempted
         return {
           success: false,
           error: `BRIGHTDATA_API_ERROR: ${response.status} - ${errorText}`,
           httpStatus: response.status,
+          cost: estimatedCost, // Request was attempted, cost incurred
         };
       }
 
@@ -201,16 +210,21 @@ export class BrightDataService {
       const err = error as Error;
       this.logger.error(`[BrightData] Fetch failed: ${err.message}`);
 
+      // Timeout and network errors - request was likely sent, cost incurred
+      const estimatedCost = PROVIDER_COSTS.brightdata.perRequest;
+
       if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
         return {
           success: false,
           error: 'BRIGHTDATA_TIMEOUT: Request timed out',
+          cost: estimatedCost, // Request was sent, BrightData bills on attempt
         };
       }
 
       return {
         success: false,
         error: `BRIGHTDATA_FETCH_ERROR: ${err.message}`,
+        cost: estimatedCost, // Conservative: assume request was attempted
       };
     }
   }
