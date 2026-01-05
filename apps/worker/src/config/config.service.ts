@@ -88,4 +88,20 @@ export class WorkerConfigService {
   get encryptionKey(): string {
     return this.configService.get<string>('ENCRYPTION_KEY')!;
   }
+
+  /**
+   * Feature flags for safe rollout
+   */
+  get featureFlags() {
+    return {
+      /**
+       * TIER_POLICY_ENABLED - controls tier policy enforcement
+       * When false: uses legacy behavior (autoThrottleDisabled check)
+       * When true: uses TierPolicyResolver (tier defaults + overrides)
+       * Default: true (new behavior)
+       * Set to false for emergency rollback without redeploy
+       */
+      tierPolicyEnabled: this.configService.get<boolean>('TIER_POLICY_ENABLED', true),
+    };
+  }
 }

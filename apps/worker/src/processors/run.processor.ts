@@ -15,6 +15,7 @@ import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { FetchOrchestratorService, OrchestratorConfig } from '../services/fetch-orchestrator.service';
 import { TierPolicyResolverService } from '../services/tier-policy-resolver.service';
+import { WorkerConfigService } from '../config/config.service';
 import { FetchRequest } from '../types/fetch-result';
 import {
   smartFetch,
@@ -72,6 +73,7 @@ export class RunProcessor extends WorkerHost {
     private healthScore: HealthScoreService,
     private fetchOrchestrator: FetchOrchestratorService,
     private tierPolicyResolver: TierPolicyResolverService,
+    private configService: WorkerConfigService,
   ) {
     super();
   }
@@ -190,17 +192,27 @@ export class RunProcessor extends WorkerHost {
           })
         : undefined;
 
-      // Resolve tier policy from FetchProfile (tier defaults + legacy fields + JSONB overrides)
-      // This enables the tri-state pattern: tier default vs explicit override
-      const tierPolicy = rule.source.fetchProfile
+      // Feature flag: TIER_POLICY_ENABLED
+      // When enabled: use TierPolicyResolver (tier defaults + legacy fields + JSONB overrides)
+      // When disabled: use legacy behavior (raw FetchProfile fields + autoThrottleDisabled)
+      const tierPolicyEnabled = this.configService.featureFlags.tierPolicyEnabled;
+
+      // Resolve tier policy from FetchProfile (only when feature flag is enabled)
+      const tierPolicy = tierPolicyEnabled && rule.source.fetchProfile
         ? this.tierPolicyResolver.resolveTierPolicy(rule.source.fetchProfile)
         : undefined;
+
+      if (tierPolicyEnabled) {
+        this.logger.debug(`[Job ${job.id}] Using tier policy: tier=${rule.source.fetchProfile?.domainTier}, allowPaid=${tierPolicy?.allowPaid}`);
+      }
 
       // Use resolved policy timeout or default 60s
       // Per-provider timeouts will be passed to orchestrator
       const defaultTimeoutMs = 60000;
 
-      // Build FetchRequest using resolved tier policy
+      // Build FetchRequest
+      // When tier policy enabled: use resolved policy fields
+      // When disabled: use legacy FetchProfile fields directly
       const fetchRequest: FetchRequest = {
         url: rule.source.url,
         workspaceId: rule.source.workspaceId,
@@ -213,18 +225,19 @@ export class RunProcessor extends WorkerHost {
           : undefined,
         cookies: parsedCookies,
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
-        // Domain policy fields - from resolved tier policy
-        preferredProvider: tierPolicy?.preferredProvider,
+        // Domain policy fields - from resolved tier policy OR legacy FetchProfile (fallback)
+        preferredProvider: tierPolicy?.preferredProvider ?? rule.source.fetchProfile?.preferredProvider ?? undefined,
         flareSolverrWaitSeconds: rule.source.fetchProfile?.flareSolverrWaitSeconds ?? undefined,
-        // Disabled providers and stop behavior from resolved policy
-        disabledProviders: tierPolicy?.disabledProviders,
-        stopAfterPreferredFailure: tierPolicy?.stopAfterPreferredFailure,
-        // Geo pinning from resolved policy
-        geoCountry: tierPolicy?.geoCountry,
+        // Disabled providers and stop behavior from resolved policy OR legacy (empty = no disabled)
+        disabledProviders: tierPolicy?.disabledProviders ?? (tierPolicyEnabled ? [] : rule.source.fetchProfile?.disabledProviders ?? []),
+        stopAfterPreferredFailure: tierPolicy?.stopAfterPreferredFailure ?? rule.source.fetchProfile?.stopAfterPreferredFailure ?? false,
+        // Geo pinning from resolved policy OR legacy FetchProfile
+        geoCountry: tierPolicy?.geoCountry ?? rule.source.fetchProfile?.geoCountry ?? undefined,
       };
 
       // Build OrchestratorConfig
-      // allowPaid: Use tier policy if available, otherwise fall back to autoThrottleDisabled check
+      // When tier policy enabled: use tierPolicy.allowPaid
+      // When disabled: use legacy autoThrottleDisabled check
       const orchestratorConfig: OrchestratorConfig = {
         maxAttemptsPerRun: 5,
         allowPaid: tierPolicy?.allowPaid ?? !rule.autoThrottleDisabled,

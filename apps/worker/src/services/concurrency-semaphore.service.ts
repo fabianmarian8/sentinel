@@ -45,10 +45,10 @@ export class ConcurrencySemaphoreService {
    * Formula: ceil(timeoutMs/1000) + max(90, ceil(timeoutMs/1000 * 0.25))
    * This ensures TTL > max expected request duration with safety buffer
    *
-   * Based on DEFAULT_PROVIDER_TIMEOUTS from tier-policy.ts:
-   * - brightdata: 90s timeout → 90 + max(90, 23) = 180s TTL
-   * - scraping_browser: 120s timeout → 120 + max(90, 30) = 210s TTL
-   * - twocaptcha_proxy/datadome: 180s timeout → 180 + max(90, 45) = 270s TTL
+   * Based on typical provider timeouts (FetchRequest.timeoutMs defaults to 60s):
+   * - brightdata: ~90s expected → 90 + 90 = 180s TTL
+   * - scraping_browser: ~120s expected → 120 + 90 = 210s TTL
+   * - twocaptcha_proxy/datadome: ~180s expected → 180 + 90 = 270s TTL
    */
   private readonly providerTtlSec: Record<string, number> = {
     brightdata: 180,          // 90s timeout + 90s buffer

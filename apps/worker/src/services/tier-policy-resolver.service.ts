@@ -15,8 +15,6 @@ import {
   TierPolicy,
   TierPolicyOverrides,
   TIER_DEFAULTS,
-  DEFAULT_PROVIDER_TIMEOUTS,
-  ProviderTimeouts,
 } from '../types/tier-policy';
 
 @Injectable()
@@ -41,10 +39,6 @@ export class TierPolicyResolverService {
       sloTarget: tierDefault.sloTarget,
       allowPaid: tierDefault.allowPaid,
       geoCountry: undefined,
-      timeouts: {
-        ...DEFAULT_PROVIDER_TIMEOUTS,
-        ...tierDefault.timeouts,
-      },
     };
 
     // 2. Overlay legacy nullable fields (backward compatibility)
@@ -105,27 +99,11 @@ export class TierPolicyResolverService {
       base.geoCountry = overrides.geoCountry;
       this.logger.debug(`Override geoCountry: ${base.geoCountry}`);
     }
-
-    if (overrides.timeouts) {
-      base.timeouts = {
-        ...base.timeouts,
-        ...overrides.timeouts,
-      };
-      this.logger.debug(`Override timeouts applied`);
-    }
+    // NOTE: Per-provider timeouts removed - orchestrator uses FetchRequest.timeoutMs
   }
 
-  /**
-   * Get timeout for a specific provider based on resolved policy
-   *
-   * @param policy - Resolved TierPolicy
-   * @param provider - Provider to get timeout for
-   * @returns Timeout in milliseconds
-   */
-  getProviderTimeout(policy: TierPolicy, provider: string): number {
-    const key = provider as keyof ProviderTimeouts;
-    return policy.timeouts[key] ?? DEFAULT_PROVIDER_TIMEOUTS[key] ?? 60000;
-  }
+  // NOTE: getProviderTimeout removed - orchestrator uses FetchRequest.timeoutMs
+  // Can be re-added when FetchOrchestrator supports per-provider timeouts
 
   /**
    * Check if a provider is enabled for this policy
