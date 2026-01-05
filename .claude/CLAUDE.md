@@ -262,3 +262,103 @@ geo_country = 'us'
 - `temu-challenge.html`
 
 **Testy:** 74 passing (vrátane 12 nových pre Amazon/Temu)
+
+#### 8. Burst Test výsledky - Amazon/Temu/Target/Zalando (4. jan 2026)
+
+**FetchProfile konfigurácia (brightdata-only pre hostile domény):**
+```sql
+-- fp-brightdata-001 (Amazon, Temu)
+preferred_provider = 'brightdata'
+disabled_providers = '{http,headless,flaresolverr,twocaptcha_proxy,twocaptcha_datadome,scraping_browser}'
+stop_after_preferred_failure = true
+geo_country = 'us'
+
+-- fp-zalando-de (Zalando)
+geo_country = 'de'
+```
+
+**SLO výsledky za 24h:**
+| Doména | Attempts | Success | Rate | Total Cost | Avg Latency |
+|--------|----------|---------|------|------------|-------------|
+| **Amazon** | 23 | 23 | **100%** | $0.009 | 1.1s |
+| **Target** | 4 | 3 | 75% | $0.003 | 11.2s |
+| **Temu** | 6 | 3 | **50%** | $0.0045 | 22.1s |
+| **Zalando** | 5 | 3 | 60% | $0.003 | 3.6s |
+
+**Chyby podľa typu:**
+
+| Doména | Outcome | Detail |
+|--------|---------|--------|
+| Temu | TIMEOUT | 60s limit prekročený (2×) |
+| Temu | STILL_BLOCKED | DataDome challenge (3MB) - BrightData nedokáže obísť |
+| Target | HTTP 404 | Geo-redirect problém |
+| Zalando | HTTP 403 | Free provider blokovaný |
+| Zalando | RATE_LIMITED | BrightData trial account limit |
+| Temu | RATE_LIMITED | BrightData trial account limit |
+
+**Závery:**
+1. **Amazon brightdata-only = 100% success** (po priradení FetchProfile)
+2. **Temu DataDome** - ani BrightData Web Unlocker nedokáže spoľahlivo obísť
+3. **BrightData trial limity** - potrebné verified account pre burst testy
+4. **Classifier signatúry fungujú** - Amazon CAPTCHA a Temu challenge správne detekované
+
+**Odporúčania:**
+- Temu: Zvážiť 2captcha DataDome riešenie alebo Scraping Browser
+- BrightData: Verifikovať account pre vyššie rate limity
+- Target: Upraviť geo_country alebo URL
+
+#### 9. Domain Tier System (5. jan 2026)
+**Problém:** Jednotný fallback zoo (http→headless→flaresolverr→brightdata) neefektívny pre rôzne typy domén.
+
+**Riešenie:** 3-úrovňový tier systém v FetchProfile:
+
+| Tier | Názov | SLO Target | Fetch Strategy | Príklady |
+|------|-------|------------|----------------|----------|
+| **tier_a** | HTTP-first | ≥95% | http→headless→flaresolverr, bez paid | alza.sk, reifen.com, iherb.com |
+| **tier_b** | Paid-first stable | ≥95% | brightdata-only, geo-pinned | amazon.com, etsy.com, walmart.com |
+| **tier_c** | Hostile/best-effort | <70% OK | brightdata→scraping_browser→2captcha | temu.com, shein.com |
+| **rate_limit** | Rate limited | N/A | Paused, exponential backoff | Domény s rate limit chybami |
+| **unknown** | Neznámy | N/A | Default tier_a behavior | Nové domény |
+
+**Konfigurácia:**
+```sql
+-- Tier A (default) - väčšina domén
+UPDATE fetch_profiles SET domain_tier = 'tier_a' WHERE domain_tier IS NULL;
+
+-- Tier B - stabilné hostile domény (paid-only)
+UPDATE fetch_profiles SET
+  domain_tier = 'tier_b',
+  preferred_provider = 'brightdata',
+  disabled_providers = '{http,headless,flaresolverr}',
+  stop_after_preferred_failure = true,
+  geo_country = 'us'
+WHERE name ILIKE '%amazon%' OR name ILIKE '%etsy%';
+
+-- Tier C - agresívne hostile domény (best-effort)
+UPDATE fetch_profiles SET
+  domain_tier = 'tier_c',
+  preferred_provider = 'brightdata'
+WHERE name ILIKE '%temu%' OR name ILIKE '%shein%';
+```
+
+**Metriky podľa tieru (stav 5. jan 2026):**
+| Tier | Domény | Úspešnosť | Priemerný cost/fetch |
+|------|--------|-----------|----------------------|
+| tier_a | 14 | 92% | $0.00 (free) |
+| tier_b | 3 | 94% | $0.0015 (brightdata) |
+| tier_c | 0 | - | - (best-effort) |
+
+**Support Matrix:**
+| Doména | Tier | Provider | Stav | Poznámka |
+|--------|------|----------|------|----------|
+| alza.sk | tier_a | http | OK | Default, stabilný |
+| reifen.com | tier_a | http | OK | Default, stabilný |
+| amazon.com | tier_b | brightdata | OK | 100% po tier_b |
+| etsy.com | tier_b | brightdata | OK | 87.5%, timeout issues |
+| temu.com | tier_c | brightdata | FAIL | 50%, DataDome blocker |
+| target.com | tier_b | brightdata | PARTIAL | Geo-redirect issues |
+
+**Implementácia:**
+- Prisma enum `DomainTier` v schéme
+- Pole `domain_tier` v FetchProfile s default `tier_a`
+- FetchOrchestrator respektuje tier pri výbere providera

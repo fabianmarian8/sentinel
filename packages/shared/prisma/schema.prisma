@@ -59,6 +59,16 @@ enum BlockKind {
   datadome
   perimeterx
   captcha
+}
+
+/// Domain tier classification for SLO expectations and cost management
+/// - tier_a: HTTP-first, SLO ≥95% on free providers (default for most sites)
+/// - tier_b: Paid-first, SLO ≥95% with explicit budget (Amazon, Etsy)
+/// - tier_c: Hostile/best-effort, lower SLO expected, higher cost (Temu, DataDome sites)
+enum DomainTier {
+  tier_a
+  tier_b
+  tier_c
   rate_limit
   unknown
 }
@@ -178,6 +188,11 @@ model FetchProfile {
   // Geo pinning: ISO 3166-1 alpha-2 country code for BrightData proxy location
   // Use this for currency stability (e.g., "cz" for Czech prices, "de" for German)
   geoCountry      String?   @map("geo_country")
+  // Domain tier classification for SLO expectations and cost management
+  // - tier_a: HTTP-first, SLO ≥95% on free providers (default for most sites)
+  // - tier_b: Paid-first, SLO ≥95% with explicit budget (Amazon, Etsy)
+  // - tier_c: Hostile/best-effort, lower SLO expected, higher cost (Temu, DataDome sites)
+  domainTier      DomainTier @default(tier_a) @map("domain_tier")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

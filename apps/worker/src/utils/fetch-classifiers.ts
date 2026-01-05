@@ -324,6 +324,24 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
     return { isBlocked: true, kind: 'captcha', confidence: 0.95, signals };
   }
 
+  // Target store/ZIP chooser interstitial
+  // Redirects to store locator instead of product page when geo-blocked
+  // Returns 200 OK with store picker instead of actual product
+  if (
+    lower.includes('target.com') &&
+    (
+      lower.includes('choose your store') ||
+      lower.includes('select a store') ||
+      lower.includes('store-locator') ||
+      lower.includes('enter your zip') ||
+      lower.includes('find a store near you') ||
+      (lower.includes('storelocator') && lower.includes('fulfillment'))
+    )
+  ) {
+    signals.push('target_store_chooser_interstitial');
+    return { isBlocked: true, kind: 'captcha', confidence: 0.9, signals };
+  }
+
   // ============================================================
   // TIER 2: HEURISTICS (size-gated, require content validation)
   // These can cause false positives on real pages with JS SDKs
@@ -431,6 +449,34 @@ export function determineFetchOutcome(
       signals.push('network_error');
       return { outcome: 'network_error', signals };
     }
+
+    // Provider returned content but it's still blocked (CAPTCHA/challenge page)
+    // This happens when BrightData/2captcha can't bypass protection
+    // IMPORTANT: Check BEFORE general provider_error to properly classify
+    if (
+      errorDetail.includes('STILL_BLOCKED') ||
+      errorDetail.includes('datadome') ||
+      errorDetail.includes('challenge')
+    ) {
+      signals.push('still_blocked');
+      // If we have body text, let classifyBlock determine if it's captcha
+      if (bodyText && bodyText.length > 0) {
+        const blockCheck = classifyBlock(bodyText);
+        if (blockCheck.isBlocked) {
+          signals.push(...blockCheck.signals);
+          if (blockCheck.kind === 'captcha' || blockCheck.kind === 'datadome') {
+            return { outcome: 'captcha_required', blockKind: blockCheck.kind, signals };
+          }
+          return { outcome: 'blocked', blockKind: blockCheck.kind, signals };
+        }
+      }
+      // Fallback: treat as blocked/captcha based on error detail
+      if (errorDetail.includes('captcha') || errorDetail.includes('challenge')) {
+        return { outcome: 'captcha_required', blockKind: 'captcha', signals };
+      }
+      return { outcome: 'blocked', blockKind: 'unknown', signals };
+    }
+
     signals.push('provider_error');
     return { outcome: 'provider_error', signals };
   }

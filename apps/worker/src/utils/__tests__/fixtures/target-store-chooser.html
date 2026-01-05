@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Target - Choose Your Store</title>
+  <link rel="canonical" href="https://www.target.com/store-locator" />
+</head>
+<body>
+  <div class="store-locator-container">
+    <h1>Find a store near you</h1>
+    <p>Enter your ZIP code to find the closest Target store.</p>
+    <form action="/store-locator/search" method="GET">
+      <label for="zipcode">Enter your zip code:</label>
+      <input type="text" id="zipcode" name="zip" placeholder="Enter ZIP" />
+      <button type="submit">Find stores</button>
+    </form>
+    <div class="store-list">
+      <h2>Choose your store</h2>
+      <p>Select a store for fulfillment options and local availability.</p>
+    </div>
+    <script>
+      // StoreLocator fulfillment integration
+      window.storelocator = { fulfillment: true };
+    </script>
+  </div>
+  <footer>
+    <a href="https://www.target.com">Target.com</a>
+  </footer>
+</body>
+</html>

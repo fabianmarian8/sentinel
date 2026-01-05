@@ -368,6 +368,51 @@ describe('fetch-classifiers', () => {
         expect(result.kind).toBe('captcha');
       });
     });
+
+    describe('Target Store/ZIP Chooser Interstitial', () => {
+      it('detects Target store chooser page via fixture', () => {
+        const html = loadFixture('target-store-chooser.html');
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.confidence).toBe(0.9);
+        expect(result.signals).toContain('target_store_chooser_interstitial');
+      });
+
+      it('detects "choose your store" text on target.com', () => {
+        const html = '<html><body>target.com - Choose your store for delivery options</body></html>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('target_store_chooser_interstitial');
+      });
+
+      it('detects "enter your zip" on target.com', () => {
+        const html = '<html><body><p>target.com</p><label>Enter your zip code:</label></body></html>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.signals).toContain('target_store_chooser_interstitial');
+      });
+
+      it('detects storelocator + fulfillment on target.com', () => {
+        const html = '<html><body><script>target.com storelocator fulfillment</script></body></html>';
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.signals).toContain('target_store_chooser_interstitial');
+      });
+
+      it('does NOT block non-Target pages with "choose your store"', () => {
+        // Without target.com domain, should not trigger
+        const html = '<html><body><h1>Choose your store</h1><p>Walmart stores</p></body></html>';
+        const result = classifyBlock(html);
+
+        expect(result.signals).not.toContain('target_store_chooser_interstitial');
+      });
+    });
   });
 
   describe('classifyBlock - Tier 2: Heuristics (size-gated)', () => {
@@ -583,6 +628,53 @@ describe('fetch-classifiers', () => {
     it('returns empty for small response', () => {
       const result = determineFetchOutcome(200, 'Hi', 'text/html');
       expect(result.outcome).toBe('empty');
+    });
+
+    // STILL_BLOCKED handling tests (Temu/BrightData issue)
+    describe('STILL_BLOCKED error handling', () => {
+      it('returns captcha_required for BRIGHTDATA_STILL_BLOCKED with DataDome content', () => {
+        const challengeHtml = loadFixture('temu-challenge.html');
+        const result = determineFetchOutcome(
+          200,
+          challengeHtml,
+          'text/html',
+          'BRIGHTDATA_STILL_BLOCKED: datadome challenge text',
+        );
+        expect(result.outcome).toBe('captcha_required');
+        expect(result.signals).toContain('still_blocked');
+      });
+
+      it('returns blocked for STILL_BLOCKED without specific captcha signal', () => {
+        const result = determineFetchOutcome(
+          200,
+          '<html><body>Some blocked content</body></html>',
+          'text/html',
+          'BRIGHTDATA_STILL_BLOCKED: unknown block',
+        );
+        expect(result.outcome).toBe('blocked');
+        expect(result.signals).toContain('still_blocked');
+      });
+
+      it('returns captcha_required for challenge in error detail', () => {
+        const result = determineFetchOutcome(
+          200,
+          undefined,
+          undefined,
+          'BRIGHTDATA_STILL_BLOCKED: challenge detected',
+        );
+        expect(result.outcome).toBe('captcha_required');
+        expect(result.signals).toContain('still_blocked');
+      });
+
+      it('returns rate_limited for rate limit error (before STILL_BLOCKED)', () => {
+        const result = determineFetchOutcome(
+          429,
+          undefined,
+          undefined,
+          'BRIGHTDATA_RATE_LIMITED: Account limit exceeded',
+        );
+        expect(result.outcome).toBe('rate_limited');
+      });
     });
   });
 });
