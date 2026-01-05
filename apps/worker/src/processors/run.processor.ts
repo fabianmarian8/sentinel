@@ -202,13 +202,16 @@ export class RunProcessor extends WorkerHost {
         ? this.tierPolicyResolver.resolveTierPolicy(rule.source.fetchProfile)
         : undefined;
 
-      if (tierPolicyEnabled) {
-        this.logger.debug(`[Job ${job.id}] Using tier policy: tier=${rule.source.fetchProfile?.domainTier}, allowPaid=${tierPolicy?.allowPaid}`);
+      if (tierPolicyEnabled && tierPolicy) {
+        this.logger.debug(
+          `[Job ${job.id}] Using tier policy: tier=${rule.source.fetchProfile?.domainTier}, ` +
+          `allowPaid=${tierPolicy.allowPaid}, timeoutMs=${tierPolicy.timeoutMs}`,
+        );
       }
 
-      // Use resolved policy timeout or default 60s
-      // Per-provider timeouts will be passed to orchestrator
-      const defaultTimeoutMs = 60000;
+      // Use tier policy timeout when enabled, otherwise legacy 60s default
+      // Tier timeouts: tier_a=30s, tier_b=60s, tier_c=120s
+      const defaultTimeoutMs = tierPolicy?.timeoutMs ?? 60000;
 
       // Build FetchRequest
       // When tier policy enabled: use resolved policy fields

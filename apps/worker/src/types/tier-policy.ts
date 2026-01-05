@@ -50,11 +50,26 @@ export interface TierPolicy {
   sloTarget: number;
   /** Whether paid providers are allowed */
   allowPaid: boolean;
-  // NOTE: Per-provider timeouts removed - orchestrator uses FetchRequest.timeoutMs
+  /**
+   * Timeout for fetch requests in milliseconds
+   * Tier-specific to match provider capabilities:
+   * - tier_a (free): 30s - fast fail for free providers
+   * - tier_b (paid-first): 60s - allow paid provider time
+   * - tier_c (hostile): 120s - DataDome/heavy bypass needs time
+   */
+  timeoutMs: number;
 }
 
 /**
  * Tier defaults - base policies for each tier
+ *
+ * Timeout rationale:
+ * - tier_a: 30s - free providers (http/headless) should fail fast
+ * - tier_b: 60s - paid providers need time for bypass but shouldn't hang
+ * - tier_c: 120s - hostile sites (DataDome) need extended time for heavy bypass
+ * - unknown: 30s - conservative, same as tier_a
+ *
+ * These timeouts must be < semaphore TTL to prevent lease expiry during request
  */
 export const TIER_DEFAULTS: Record<DomainTier, TierPolicy> = {
   tier_a: {
@@ -62,6 +77,7 @@ export const TIER_DEFAULTS: Record<DomainTier, TierPolicy> = {
     stopAfterPreferredFailure: false,
     sloTarget: 0.95,
     allowPaid: false,
+    timeoutMs: 30000, // 30s - fast fail for free providers
   },
   tier_b: {
     preferredProvider: 'brightdata',
@@ -69,6 +85,7 @@ export const TIER_DEFAULTS: Record<DomainTier, TierPolicy> = {
     stopAfterPreferredFailure: true,
     sloTarget: 0.95,
     allowPaid: true,
+    timeoutMs: 60000, // 60s - paid provider time
   },
   tier_c: {
     preferredProvider: 'brightdata',
@@ -76,6 +93,7 @@ export const TIER_DEFAULTS: Record<DomainTier, TierPolicy> = {
     stopAfterPreferredFailure: false, // Try other paid providers
     sloTarget: 0.80, // Best-effort
     allowPaid: true,
+    timeoutMs: 120000, // 120s - DataDome/heavy bypass
   },
   unknown: {
     // Fallback to tier_a behavior
@@ -83,5 +101,6 @@ export const TIER_DEFAULTS: Record<DomainTier, TierPolicy> = {
     stopAfterPreferredFailure: false,
     sloTarget: 0.95,
     allowPaid: false,
+    timeoutMs: 30000, // 30s - conservative default
   },
 };

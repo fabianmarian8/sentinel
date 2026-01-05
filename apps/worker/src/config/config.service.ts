@@ -98,10 +98,17 @@ export class WorkerConfigService {
        * TIER_POLICY_ENABLED - controls tier policy enforcement
        * When false: uses legacy behavior (autoThrottleDisabled check)
        * When true: uses TierPolicyResolver (tier defaults + overrides)
-       * Default: true (new behavior)
-       * Set to false for emergency rollback without redeploy
+       *
+       * Rollout strategy:
+       * - staging: TIER_POLICY_ENABLED=true
+       * - production: TIER_POLICY_ENABLED=false (default), then canary → global
+       *
+       * IMPORTANT: Before enabling in production:
+       * 1. Run backfill SQL to set correct domain_tier for existing profiles
+       * 2. Enable for internal workspace only (canary)
+       * 3. Monitor SLO for 24h before global rollout
        */
-      tierPolicyEnabled: this.configService.get<boolean>('TIER_POLICY_ENABLED', true),
+      tierPolicyEnabled: this.configService.get<boolean>('TIER_POLICY_ENABLED', false),
     };
   }
 }

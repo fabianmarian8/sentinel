@@ -39,6 +39,7 @@ export class TierPolicyResolverService {
       sloTarget: tierDefault.sloTarget,
       allowPaid: tierDefault.allowPaid,
       geoCountry: undefined,
+      timeoutMs: tierDefault.timeoutMs,
     };
 
     // 2. Overlay legacy nullable fields (backward compatibility)
@@ -61,14 +62,58 @@ export class TierPolicyResolverService {
       this.applyOverrides(base, overrides);
     }
 
+    // 4. Tier drift detection - warn about config inconsistencies
+    this.detectTierDrift(profile, tier, base);
+
     this.logger.debug(
       `Resolved policy for tier ${tier}: preferredProvider=${base.preferredProvider}, ` +
         `disabledProviders=[${base.disabledProviders.join(',')}], ` +
         `stopAfterPreferred=${base.stopAfterPreferredFailure}, ` +
-        `sloTarget=${base.sloTarget}`,
+        `timeoutMs=${base.timeoutMs}, sloTarget=${base.sloTarget}`,
     );
 
     return base;
+  }
+
+  /**
+   * Detect tier configuration drift/inconsistencies
+   *
+   * Warns about:
+   * - tier_a with paid config (preferredProvider or stopAfterPreferredFailure)
+   * - tier_b/c with allowPaid=false override (contradiction)
+   */
+  private detectTierDrift(profile: FetchProfile, tier: DomainTier, resolved: TierPolicy): void {
+    const profileId = profile.id;
+
+    // Case 1: tier_a but has paid configuration
+    // This means the profile was likely used for paid-first but tier wasn't upgraded
+    if (tier === 'tier_a' || tier === 'unknown') {
+      const hasPaidConfig = profile.preferredProvider !== null ||
+                            profile.stopAfterPreferredFailure === true;
+      if (hasPaidConfig) {
+        this.logger.warn(
+          `[TIER_DRIFT] Profile ${profileId}: tier=${tier} but has paid config ` +
+          `(preferredProvider=${profile.preferredProvider}, stopAfterPreferred=${profile.stopAfterPreferredFailure}). ` +
+          `Consider upgrading to tier_b. Resolved allowPaid=${resolved.allowPaid}`,
+        );
+      }
+    }
+
+    // Case 2: tier_b/c but allowPaid disabled via override (contradiction)
+    if ((tier === 'tier_b' || tier === 'tier_c') && !resolved.allowPaid) {
+      this.logger.warn(
+        `[TIER_DRIFT] Profile ${profileId}: tier=${tier} (paid tier) but allowPaid=false. ` +
+        `This is a configuration contradiction - paid providers won't be used despite paid tier.`,
+      );
+    }
+
+    // Case 3: tier_c but no preferredProvider (best-effort needs starting point)
+    if (tier === 'tier_c' && !resolved.preferredProvider) {
+      this.logger.warn(
+        `[TIER_DRIFT] Profile ${profileId}: tier=tier_c (hostile) but no preferredProvider. ` +
+        `Best-effort tier should have a preferred paid provider to start with.`,
+      );
+    }
   }
 
   /**
