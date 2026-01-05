@@ -436,4 +436,305 @@ export class StatsService {
       return 'critical';
     }
   }
+
+  /**
+   * Get canary SLO metrics with tier breakdown
+   *
+   * Designed for 24h canary eval protocol:
+   * - Success rate per tier (tier_a/tier_b/tier_c)
+   * - Cost per success per tier
+   * - rate_limited % (BrightData/paid provider capacity issues)
+   * - Worst hostnames with primary error reason
+   *
+   * GO criteria (from Oponent):
+   * - Tier A/B: ≥95% success
+   * - Tier C: ≥80% success
+   * - Cost/success: not >20% worse than baseline
+   * - rate_limited: <5% of runs
+   */
+  async getCanarySloMetrics(
+    workspaceId: string,
+    hours: number = 24,
+  ): Promise<{
+    period: { from: Date; to: Date; hours: number };
+    byTier: Record<
+      string,
+      {
+        totalRuns: number;
+        successfulRuns: number;
+        successRate: number;
+        totalCostUsd: number;
+        costPerSuccess: number;
+        status: 'healthy' | 'warning' | 'critical';
+        sloTarget: number;
+      }
+    >;
+    rateLimited: {
+      count: number;
+      percentage: number;
+      byProvider: Record<string, number>;
+    };
+    worstHostnames: Array<{
+      hostname: string;
+      tier: string;
+      successRate: number;
+      attempts: number;
+      costUsd: number;
+      primaryError: string | null;
+      errorCount: number;
+    }>;
+    goNoGo: {
+      canProceed: boolean;
+      blockers: string[];
+    };
+  }> {
+    const fromDate = new Date();
+    fromDate.setTime(fromDate.getTime() - hours * 60 * 60 * 1000);
+    const toDate = new Date();
+
+    // SLO targets by tier
+    const sloTargets: Record<string, number> = {
+      tier_a: 0.95,
+      tier_b: 0.95,
+      tier_c: 0.80,
+      unknown: 0.95,
+    };
+
+    // Get rules with their tier info for this workspace
+    const rulesWithTier = await this.prisma.rule.findMany({
+      where: { source: { workspaceId } },
+      select: {
+        id: true,
+        source: {
+          select: {
+            fetchProfile: {
+              select: { domainTier: true },
+            },
+          },
+        },
+      },
+    });
+
+    const ruleToTier = new Map<string, string>();
+    for (const rule of rulesWithTier) {
+      const tier = rule.source?.fetchProfile?.domainTier ?? 'tier_a';
+      ruleToTier.set(rule.id, tier);
+    }
+    const ruleIds = rulesWithTier.map((r) => r.id);
+
+    // Get runs with their outcomes
+    const runs = await this.prisma.run.findMany({
+      where: {
+        ruleId: { in: ruleIds },
+        startedAt: { gte: fromDate },
+      },
+      select: {
+        id: true,
+        ruleId: true,
+        errorCode: true,
+        observations: { select: { id: true }, take: 1 },
+      },
+    });
+
+    // Aggregate by tier
+    const byTier: Record<
+      string,
+      { total: number; success: number; costUsd: number }
+    > = {
+      tier_a: { total: 0, success: 0, costUsd: 0 },
+      tier_b: { total: 0, success: 0, costUsd: 0 },
+      tier_c: { total: 0, success: 0, costUsd: 0 },
+      unknown: { total: 0, success: 0, costUsd: 0 },
+    };
+
+    for (const run of runs) {
+      const tier = ruleToTier.get(run.ruleId!) ?? 'tier_a';
+      byTier[tier]!.total++;
+      if (!run.errorCode && run.observations.length > 0) {
+        byTier[tier]!.success++;
+      }
+    }
+
+    // Get cost by tier (join through rule -> source -> fetchProfile)
+    const fetchAttempts = await this.prisma.fetchAttempt.findMany({
+      where: {
+        workspaceId,
+        createdAt: { gte: fromDate },
+        ruleId: { not: null },
+      },
+      select: {
+        ruleId: true,
+        costUsd: true,
+        outcome: true,
+        provider: true,
+        hostname: true,
+      },
+    });
+
+    for (const attempt of fetchAttempts) {
+      if (attempt.ruleId) {
+        const tier = ruleToTier.get(attempt.ruleId) ?? 'tier_a';
+        byTier[tier]!.costUsd += attempt.costUsd;
+      }
+    }
+
+    // Format tier results
+    const tierResults: Record<
+      string,
+      {
+        totalRuns: number;
+        successfulRuns: number;
+        successRate: number;
+        totalCostUsd: number;
+        costPerSuccess: number;
+        status: 'healthy' | 'warning' | 'critical';
+        sloTarget: number;
+      }
+    > = {};
+
+    for (const [tier, data] of Object.entries(byTier)) {
+      const successRate = data.total > 0 ? data.success / data.total : 1;
+      const sloTarget = sloTargets[tier] ?? 0.95;
+      tierResults[tier] = {
+        totalRuns: data.total,
+        successfulRuns: data.success,
+        successRate,
+        totalCostUsd: data.costUsd,
+        costPerSuccess: data.success > 0 ? data.costUsd / data.success : 0,
+        status: this.getStatus(successRate, sloTarget, sloTarget - 0.05, true),
+        sloTarget,
+      };
+    }
+
+    // Rate limited stats
+    const rateLimitedAttempts = fetchAttempts.filter(
+      (a) => a.outcome === 'rate_limited',
+    );
+    const rateLimitedByProvider: Record<string, number> = {};
+    for (const attempt of rateLimitedAttempts) {
+      const provider = attempt.provider ?? 'unknown';
+      rateLimitedByProvider[provider] =
+        (rateLimitedByProvider[provider] ?? 0) + 1;
+    }
+
+    const totalAttempts = fetchAttempts.length;
+    const rateLimitedCount = rateLimitedAttempts.length;
+    const rateLimitedPercentage =
+      totalAttempts > 0 ? rateLimitedCount / totalAttempts : 0;
+
+    // Worst hostnames with primary error
+    const hostnameStats = new Map<
+      string,
+      {
+        tier: string;
+        attempts: number;
+        successes: number;
+        costUsd: number;
+        errors: Record<string, number>;
+      }
+    >();
+
+    for (const attempt of fetchAttempts) {
+      const hostname = attempt.hostname;
+      const tier = attempt.ruleId
+        ? (ruleToTier.get(attempt.ruleId) ?? 'tier_a')
+        : 'tier_a';
+
+      if (!hostnameStats.has(hostname)) {
+        hostnameStats.set(hostname, {
+          tier,
+          attempts: 0,
+          successes: 0,
+          costUsd: 0,
+          errors: {},
+        });
+      }
+
+      const stats = hostnameStats.get(hostname)!;
+      stats.attempts++;
+      stats.costUsd += attempt.costUsd;
+
+      if (attempt.outcome === 'ok') {
+        stats.successes++;
+      } else {
+        stats.errors[attempt.outcome] = (stats.errors[attempt.outcome] ?? 0) + 1;
+      }
+    }
+
+    const worstHostnames = Array.from(hostnameStats.entries())
+      .map(([hostname, stats]) => {
+        const successRate =
+          stats.attempts > 0 ? stats.successes / stats.attempts : 1;
+
+        // Find primary error (most common)
+        let primaryError: string | null = null;
+        let maxErrorCount = 0;
+        for (const [error, count] of Object.entries(stats.errors)) {
+          if (count > maxErrorCount) {
+            maxErrorCount = count;
+            primaryError = error;
+          }
+        }
+
+        return {
+          hostname,
+          tier: stats.tier,
+          successRate,
+          attempts: stats.attempts,
+          costUsd: stats.costUsd,
+          primaryError,
+          errorCount: maxErrorCount,
+        };
+      })
+      .sort((a, b) => a.successRate - b.successRate) // Worst first
+      .slice(0, 10);
+
+    // GO/NO-GO decision
+    const blockers: string[] = [];
+
+    // Check tier success rates
+    if (tierResults.tier_a && tierResults.tier_a.totalRuns > 0) {
+      if (tierResults.tier_a.successRate < 0.95) {
+        blockers.push(
+          `Tier A success rate ${(tierResults.tier_a.successRate * 100).toFixed(1)}% < 95%`,
+        );
+      }
+    }
+    if (tierResults.tier_b && tierResults.tier_b.totalRuns > 0) {
+      if (tierResults.tier_b.successRate < 0.95) {
+        blockers.push(
+          `Tier B success rate ${(tierResults.tier_b.successRate * 100).toFixed(1)}% < 95%`,
+        );
+      }
+    }
+    if (tierResults.tier_c && tierResults.tier_c.totalRuns > 0) {
+      if (tierResults.tier_c.successRate < 0.80) {
+        blockers.push(
+          `Tier C success rate ${(tierResults.tier_c.successRate * 100).toFixed(1)}% < 80%`,
+        );
+      }
+    }
+
+    // Check rate limited
+    if (rateLimitedPercentage > 0.05) {
+      blockers.push(
+        `Rate limited ${(rateLimitedPercentage * 100).toFixed(1)}% > 5%`,
+      );
+    }
+
+    return {
+      period: { from: fromDate, to: toDate, hours },
+      byTier: tierResults,
+      rateLimited: {
+        count: rateLimitedCount,
+        percentage: rateLimitedPercentage,
+        byProvider: rateLimitedByProvider,
+      },
+      worstHostnames,
+      goNoGo: {
+        canProceed: blockers.length === 0,
+        blockers,
+      },
+    };
+  }
 }

@@ -72,4 +72,31 @@ export class StatsController {
     }
     return this.statsService.getGlobalSloMetricsByHostname(parseInt(hours));
   }
+
+  /**
+   * Admin endpoint: SLO metrics for specific workspace (canary eval)
+   * Returns metrics with tier breakdown for canary workspace monitoring
+   *
+   * Required for 24h canary eval protocol:
+   * - Success rate per tier (A/B/C)
+   * - Cost per success per tier
+   * - rate_limited % (BrightData capacity)
+   * - Worst hostnames with primary error
+   *
+   * Use: curl -H "X-Internal-Key: sentinel-internal-2026" "/api/stats/admin/slo/canary?workspaceId=xxx&hours=24"
+   */
+  @Get('admin/slo/canary')
+  getCanarySloMetrics(
+    @Headers('x-internal-key') apiKey: string,
+    @Query('workspaceId') workspaceId: string,
+    @Query('hours') hours: string = '24',
+  ) {
+    if (apiKey !== INTERNAL_API_KEY) {
+      throw new UnauthorizedException('Invalid internal API key');
+    }
+    if (!workspaceId) {
+      throw new UnauthorizedException('workspaceId query parameter required');
+    }
+    return this.statsService.getCanarySloMetrics(workspaceId, parseInt(hours));
+  }
 }

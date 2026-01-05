@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService as NestConfigService } from '@nestjs/config';
 
 /**
@@ -7,6 +7,8 @@ import { ConfigService as NestConfigService } from '@nestjs/config';
  */
 @Injectable()
 export class WorkerConfigService {
+  private readonly logger = new Logger(WorkerConfigService.name);
+
   constructor(private configService: NestConfigService) {}
 
   /**
@@ -123,24 +125,51 @@ export class WorkerConfigService {
 
   /**
    * Parse CANARY_WORKSPACE_IDS env variable into array
+   *
+   * Edge case handling:
+   * - Whitespace: " uuid1 , uuid2 " → ["uuid1", "uuid2"]
+   * - Trailing comma: "uuid1,uuid2," → ["uuid1", "uuid2"]
+   * - Only whitespace: "  " → []
+   * - Only commas: ",,," → []
+   *
+   * UUID format validation: warns but doesn't reject (allows any string ID)
    */
   private parseCanaryWorkspaceIds(): string[] {
     const raw = this.configService.get<string>('CANARY_WORKSPACE_IDS', '');
     if (!raw || raw.trim() === '') {
       return [];
     }
-    return raw.split(',').map(id => id.trim()).filter(id => id.length > 0);
+
+    const ids = raw.split(',').map(id => id.trim()).filter(id => id.length > 0);
+
+    // Validate UUID format (warn only, don't reject)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    for (const id of ids) {
+      if (!uuidRegex.test(id)) {
+        this.logger.warn(
+          `CANARY_WORKSPACE_IDS contains non-UUID value: "${id}" - ` +
+          `this may be intentional, but verify it matches actual workspace IDs`,
+        );
+      }
+    }
+
+    return ids;
   }
 
   /**
    * Check if a workspace is in the canary group
-   * Returns true if:
-   * - No canary list defined (global rollout)
-   * - Workspace ID is in the canary list
+   *
+   * SEMANTICS (critical for correct rollout):
+   * - CANARY_WORKSPACE_IDS not set / empty → returns TRUE for ALL workspaces (global rollout)
+   * - CANARY_WORKSPACE_IDS has values → returns TRUE only for listed workspaces (true canary)
+   *
+   * WARNING: Empty list means GLOBAL rollout, not "apply to none".
+   * If you want tier policy disabled, set TIER_POLICY_ENABLED=false instead.
    */
   isCanaryWorkspace(workspaceId: string): boolean {
     const canaryIds = this.featureFlags.canaryWorkspaceIds;
-    // Empty list = global rollout (all workspaces)
+    // Empty list = global rollout (all workspaces enabled)
+    // This is intentional: allows removing CANARY_WORKSPACE_IDS for global rollout
     if (canaryIds.length === 0) {
       return true;
     }
