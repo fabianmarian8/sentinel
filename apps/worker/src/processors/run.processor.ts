@@ -91,6 +91,10 @@ export class RunProcessor extends WorkerHost {
         return 'headless';
       case 'flaresolverr':
         return 'flaresolverr';
+      case 'brightdata':
+      case 'twocaptcha_proxy':
+      case 'twocaptcha_datadome':
+        return 'brightdata';
       default:
         return 'http';
     }

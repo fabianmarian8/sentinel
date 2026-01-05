@@ -484,6 +484,12 @@ export function determineFetchOutcome(
 
   // HTTP error status
   if (httpStatus && httpStatus >= 400) {
+    // HTTP 404 = product/page doesn't exist - NOT a provider failure
+    // This is a legitimate "not found" that should auto-disable rule after N occurrences
+    if (httpStatus === 404) {
+      signals.push('http_404_not_found');
+      return { outcome: 'not_found', signals };
+    }
     if (httpStatus === 403 || httpStatus === 429) {
       const blockCheck = classifyBlock(bodyText);
       signals.push(...blockCheck.signals);

@@ -25,7 +25,8 @@ export type FetchOutcome =
   | 'provider_error'
   | 'rate_limited'            // Provider-level rate limit (retry later)
   | 'preferred_unavailable'   // P0: preferredProvider not available (allowPaid=false or disabled)
-  | 'interstitial_geo';       // Geo-redirect page (store chooser, ZIP picker) - NOT a provider failure
+  | 'interstitial_geo'        // Geo-redirect page (store chooser, ZIP picker) - NOT a provider failure
+  | 'not_found';              // HTTP 404 - product/page doesn't exist, auto-disable rule after N occurrences
 
 export type BlockKind =
   | 'cloudflare'

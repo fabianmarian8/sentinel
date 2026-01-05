@@ -3,7 +3,7 @@
 export type UUID = string;
 export type WorkspaceType = "ecommerce" | "competitor" | "procurement";
 export type RuleType = "price" | "availability" | "text" | "number" | "json_field";
-export type FetchMode = "http" | "headless" | "flaresolverr";
+export type FetchMode = "http" | "headless" | "flaresolverr" | "brightdata";
 
 /**
  * Error codes for Sentinel run failures

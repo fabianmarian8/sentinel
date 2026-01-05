@@ -201,7 +201,24 @@ export class BrightDataService {
             httpStatus: 429,
           };
         }
-        this.logger.error(`[BrightData] Empty response received from API`);
+
+        // Instrumentation: Capture comprehensive metadata for debugging empty responses
+        // This helps diagnose why BrightData sometimes returns empty content
+        const emptyResponseMeta = {
+          url: request.url,
+          httpStatus: response.status,
+          elapsed: `${elapsed}ms`,
+          requestId: response.headers.get('x-brd-req-id') ?? 'N/A',
+          brdDebugInfo: response.headers.get('x-brd-debug-info') ?? 'N/A',
+          contentType: response.headers.get('content-type') ?? 'N/A',
+          contentLength: response.headers.get('content-length') ?? '0',
+          xDatadome: response.headers.get('x-datadome') ?? 'N/A',
+          cacheStatus: response.headers.get('x-cache') ?? 'N/A',
+        };
+
+        this.logger.error(
+          `[BrightData] BRIGHTDATA_EMPTY_RESPONSE instrumentation: ${JSON.stringify(emptyResponseMeta)}`,
+        );
         return {
           success: false,
           error: 'BRIGHTDATA_EMPTY_RESPONSE: API returned empty content',

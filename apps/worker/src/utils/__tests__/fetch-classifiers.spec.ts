@@ -636,6 +636,22 @@ describe('fetch-classifiers', () => {
       expect(result.outcome).toBe('blocked');
     });
 
+    it('returns not_found for 404 status (product/page does not exist)', () => {
+      const result = determineFetchOutcome(404, '<h1>Page Not Found</h1>', 'text/html');
+      expect(result.outcome).toBe('not_found');
+      expect(result.signals).toContain('http_404_not_found');
+    });
+
+    it('returns not_found for 404 even with valid body content', () => {
+      // 404 should always be not_found, regardless of body content
+      const html = `<!DOCTYPE html><html><body>
+        <h1>Product Not Found</h1>
+        <script type="application/ld+json">{"@type": "WebPage"}</script>
+      </body></html>`;
+      const result = determineFetchOutcome(404, html, 'text/html');
+      expect(result.outcome).toBe('not_found');
+    });
+
     it('returns empty for small response', () => {
       const result = determineFetchOutcome(200, 'Hi', 'text/html');
       expect(result.outcome).toBe('empty');
