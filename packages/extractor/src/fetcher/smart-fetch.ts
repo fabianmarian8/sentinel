@@ -12,7 +12,7 @@ export interface SmartFetchOptions extends FetchOptions {
   // Fallback behavior
   fallbackToHeadless?: boolean; // default true
   fallbackToFlareSolverr?: boolean; // default true
-  preferredMode?: 'http' | 'headless' | 'flaresolverr' | 'auto'; // default 'auto'
+  preferredMode?: 'http' | 'headless' | 'flaresolverr' | 'brightdata' | 'auto'; // default 'auto'
 
   // FlareSolverr options
   flareSolverrUrl?: string; // default http://localhost:8191/v1
@@ -45,7 +45,12 @@ export interface SmartFetchResult extends FetchResult {
 export async function smartFetch(
   options: SmartFetchOptions
 ): Promise<SmartFetchResult> {
+  // brightdata is a paid provider handled by FetchOrchestrator, not smartFetch
+  // Map it to 'auto' for local testing/API rule-test endpoint
   let preferredMode = options.preferredMode || 'auto';
+  if (preferredMode === 'brightdata') {
+    preferredMode = 'auto';
+  }
   const fallbackToHeadless = options.fallbackToHeadless !== false;
   const fallbackToFlareSolverr = options.fallbackToFlareSolverr !== false;
   const flareSolverrUrl = options.flareSolverrUrl || 'http://localhost:8191/v1';
