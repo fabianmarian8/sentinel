@@ -441,16 +441,17 @@ export class StatsService {
    * Get canary SLO metrics with tier breakdown
    *
    * Designed for 24h canary eval protocol:
-   * - Success rate per tier (tier_a/tier_b/tier_c)
+   * - Dual success rates: observationSuccessRate (SLO) + fetchOkRate (network)
    * - Cost per success per tier
    * - rate_limited % (BrightData/paid provider capacity issues)
    * - Worst hostnames with primary error reason
    *
    * GO criteria (from Oponent):
-   * - Tier A/B: ≥95% success
-   * - Tier C: ≥80% success
+   * - Tier A/B: ≥95% observationSuccessRate
+   * - Tier C: ≥80% observationSuccessRate
    * - Cost/success: not >20% worse than baseline
    * - rate_limited: <5% of runs
+   * - Min sample size: 30 runs per tier (otherwise INSUFFICIENT_SAMPLE)
    */
   async getCanarySloMetrics(
     workspaceId: string,
@@ -462,10 +463,13 @@ export class StatsService {
       {
         totalRuns: number;
         successfulRuns: number;
-        successRate: number;
+        observationSuccessRate: number; // Runs with valid observation (SLO metric)
+        fetchAttempts: number;
+        fetchOkCount: number;
+        fetchOkRate: number; // Fetch attempts with outcome=ok (network metric)
         totalCostUsd: number;
         costPerSuccess: number;
-        status: 'healthy' | 'warning' | 'critical';
+        status: 'healthy' | 'warning' | 'critical' | 'insufficient_sample';
         sloTarget: number;
       }
     >;
@@ -477,7 +481,7 @@ export class StatsService {
     worstHostnames: Array<{
       hostname: string;
       tier: string;
-      successRate: number;
+      fetchOkRate: number;
       attempts: number;
       costUsd: number;
       primaryError: string | null;
@@ -536,26 +540,32 @@ export class StatsService {
       },
     });
 
-    // Aggregate by tier
+    // Aggregate by tier - observation-based (SLO metric)
     const byTier: Record<
       string,
-      { total: number; success: number; costUsd: number }
+      {
+        totalRuns: number;
+        successRuns: number;
+        fetchAttempts: number;
+        fetchOkCount: number;
+        costUsd: number;
+      }
     > = {
-      tier_a: { total: 0, success: 0, costUsd: 0 },
-      tier_b: { total: 0, success: 0, costUsd: 0 },
-      tier_c: { total: 0, success: 0, costUsd: 0 },
-      unknown: { total: 0, success: 0, costUsd: 0 },
+      tier_a: { totalRuns: 0, successRuns: 0, fetchAttempts: 0, fetchOkCount: 0, costUsd: 0 },
+      tier_b: { totalRuns: 0, successRuns: 0, fetchAttempts: 0, fetchOkCount: 0, costUsd: 0 },
+      tier_c: { totalRuns: 0, successRuns: 0, fetchAttempts: 0, fetchOkCount: 0, costUsd: 0 },
+      unknown: { totalRuns: 0, successRuns: 0, fetchAttempts: 0, fetchOkCount: 0, costUsd: 0 },
     };
 
     for (const run of runs) {
       const tier = ruleToTier.get(run.ruleId!) ?? 'tier_a';
-      byTier[tier]!.total++;
+      byTier[tier]!.totalRuns++;
       if (!run.errorCode && run.observations.length > 0) {
-        byTier[tier]!.success++;
+        byTier[tier]!.successRuns++;
       }
     }
 
-    // Get cost by tier (join through rule -> source -> fetchProfile)
+    // Get fetch attempts for network-level metrics
     const fetchAttempts = await this.prisma.fetchAttempt.findMany({
       where: {
         workspaceId,
@@ -571,37 +581,70 @@ export class StatsService {
       },
     });
 
+    // Aggregate fetch-level stats by tier
     for (const attempt of fetchAttempts) {
       if (attempt.ruleId) {
         const tier = ruleToTier.get(attempt.ruleId) ?? 'tier_a';
+        byTier[tier]!.fetchAttempts++;
         byTier[tier]!.costUsd += attempt.costUsd;
+        if (attempt.outcome === 'ok') {
+          byTier[tier]!.fetchOkCount++;
+        }
       }
     }
 
-    // Format tier results
+    // Min sample size threshold
+    const MIN_SAMPLE_SIZE = 30;
+
+    // Format tier results with dual success rates
     const tierResults: Record<
       string,
       {
         totalRuns: number;
         successfulRuns: number;
-        successRate: number;
+        observationSuccessRate: number;
+        fetchAttempts: number;
+        fetchOkCount: number;
+        fetchOkRate: number;
         totalCostUsd: number;
         costPerSuccess: number;
-        status: 'healthy' | 'warning' | 'critical';
+        status: 'healthy' | 'warning' | 'critical' | 'insufficient_sample';
         sloTarget: number;
       }
     > = {};
 
     for (const [tier, data] of Object.entries(byTier)) {
-      const successRate = data.total > 0 ? data.success / data.total : 1;
+      const observationSuccessRate = data.totalRuns > 0
+        ? data.successRuns / data.totalRuns
+        : 1;
+      const fetchOkRate = data.fetchAttempts > 0
+        ? data.fetchOkCount / data.fetchAttempts
+        : 1;
       const sloTarget = sloTargets[tier] ?? 0.95;
+
+      // Status logic with min sample size
+      let status: 'healthy' | 'warning' | 'critical' | 'insufficient_sample';
+      if (data.totalRuns < MIN_SAMPLE_SIZE) {
+        status = 'insufficient_sample';
+      } else {
+        status = this.getStatus(
+          observationSuccessRate,
+          sloTarget,
+          sloTarget - 0.05,
+          true,
+        );
+      }
+
       tierResults[tier] = {
-        totalRuns: data.total,
-        successfulRuns: data.success,
-        successRate,
+        totalRuns: data.totalRuns,
+        successfulRuns: data.successRuns,
+        observationSuccessRate,
+        fetchAttempts: data.fetchAttempts,
+        fetchOkCount: data.fetchOkCount,
+        fetchOkRate,
         totalCostUsd: data.costUsd,
-        costPerSuccess: data.success > 0 ? data.costUsd / data.success : 0,
-        status: this.getStatus(successRate, sloTarget, sloTarget - 0.05, true),
+        costPerSuccess: data.successRuns > 0 ? data.costUsd / data.successRuns : 0,
+        status,
         sloTarget,
       };
     }
@@ -663,7 +706,7 @@ export class StatsService {
 
     const worstHostnames = Array.from(hostnameStats.entries())
       .map(([hostname, stats]) => {
-        const successRate =
+        const fetchOkRate =
           stats.attempts > 0 ? stats.successes / stats.attempts : 1;
 
         // Find primary error (most common)
@@ -679,38 +722,38 @@ export class StatsService {
         return {
           hostname,
           tier: stats.tier,
-          successRate,
+          fetchOkRate,
           attempts: stats.attempts,
           costUsd: stats.costUsd,
           primaryError,
           errorCount: maxErrorCount,
         };
       })
-      .sort((a, b) => a.successRate - b.successRate) // Worst first
+      .sort((a, b) => a.fetchOkRate - b.fetchOkRate) // Worst first
       .slice(0, 10);
 
-    // GO/NO-GO decision
+    // GO/NO-GO decision based on observationSuccessRate (SLO metric)
     const blockers: string[] = [];
 
-    // Check tier success rates
-    if (tierResults.tier_a && tierResults.tier_a.totalRuns > 0) {
-      if (tierResults.tier_a.successRate < 0.95) {
+    // Only evaluate tiers with sufficient sample size
+    if (tierResults.tier_a && tierResults.tier_a.status !== 'insufficient_sample') {
+      if (tierResults.tier_a.observationSuccessRate < 0.95) {
         blockers.push(
-          `Tier A success rate ${(tierResults.tier_a.successRate * 100).toFixed(1)}% < 95%`,
+          `Tier A observationSuccessRate ${(tierResults.tier_a.observationSuccessRate * 100).toFixed(1)}% < 95%`,
         );
       }
     }
-    if (tierResults.tier_b && tierResults.tier_b.totalRuns > 0) {
-      if (tierResults.tier_b.successRate < 0.95) {
+    if (tierResults.tier_b && tierResults.tier_b.status !== 'insufficient_sample') {
+      if (tierResults.tier_b.observationSuccessRate < 0.95) {
         blockers.push(
-          `Tier B success rate ${(tierResults.tier_b.successRate * 100).toFixed(1)}% < 95%`,
+          `Tier B observationSuccessRate ${(tierResults.tier_b.observationSuccessRate * 100).toFixed(1)}% < 95%`,
         );
       }
     }
-    if (tierResults.tier_c && tierResults.tier_c.totalRuns > 0) {
-      if (tierResults.tier_c.successRate < 0.80) {
+    if (tierResults.tier_c && tierResults.tier_c.status !== 'insufficient_sample') {
+      if (tierResults.tier_c.observationSuccessRate < 0.80) {
         blockers.push(
-          `Tier C success rate ${(tierResults.tier_c.successRate * 100).toFixed(1)}% < 80%`,
+          `Tier C observationSuccessRate ${(tierResults.tier_c.observationSuccessRate * 100).toFixed(1)}% < 80%`,
         );
       }
     }
