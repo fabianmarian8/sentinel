@@ -40,10 +40,34 @@ export class ConcurrencySemaphoreService {
   };
 
   /**
-   * Lease TTL in seconds - auto-release on crash
-   * Should be > max expected request duration (60s timeout + 30s buffer)
+   * Per-provider lease TTL in seconds - auto-release on crash
+   *
+   * Formula: ceil(timeoutMs/1000) + max(90, ceil(timeoutMs/1000 * 0.25))
+   * This ensures TTL > max expected request duration with safety buffer
+   *
+   * Based on DEFAULT_PROVIDER_TIMEOUTS from tier-policy.ts:
+   * - brightdata: 90s timeout → 90 + max(90, 23) = 180s TTL
+   * - scraping_browser: 120s timeout → 120 + max(90, 30) = 210s TTL
+   * - twocaptcha_proxy/datadome: 180s timeout → 180 + max(90, 45) = 270s TTL
    */
-  private readonly LEASE_TTL_SEC = 90;
+  private readonly providerTtlSec: Record<string, number> = {
+    brightdata: 180,          // 90s timeout + 90s buffer
+    scraping_browser: 210,    // 120s timeout + 90s buffer
+    twocaptcha_proxy: 270,    // 180s timeout + 90s buffer
+    twocaptcha_datadome: 270, // 180s timeout + 90s buffer
+  };
+
+  /**
+   * Default lease TTL for unknown providers
+   */
+  private readonly DEFAULT_LEASE_TTL_SEC = 150; // Conservative default
+
+  /**
+   * Get lease TTL for a specific provider
+   */
+  private getLeaseTtl(provider: ProviderId): number {
+    return this.providerTtlSec[provider] ?? this.DEFAULT_LEASE_TTL_SEC;
+  }
 
   constructor(private configService: WorkerConfigService) {
     const redisConfig = this.configService.redis;
@@ -116,6 +140,9 @@ export class ConcurrencySemaphoreService {
     provider: ProviderId,
     leaseId: string,
   ): Promise<{ acquired: boolean; currentCount: number; waitSuggestionMs?: number }> {
+    // Get provider-specific TTL
+    const ttlSec = this.getLeaseTtl(provider);
+
     // First check global limit (for trial accounts)
     const maxGlobal = this.getMaxGlobalConcurrent(provider);
     if (maxGlobal !== Infinity) {
@@ -123,6 +150,7 @@ export class ConcurrencySemaphoreService {
         this.getGlobalKey(provider),
         `${leaseId}:global`,
         maxGlobal,
+        ttlSec,
       );
       if (!globalResult.acquired) {
         this.logger.debug(
@@ -139,7 +167,7 @@ export class ConcurrencySemaphoreService {
     }
 
     const key = this.getKey(hostname, provider);
-    const result = await this.tryAcquireInternal(key, leaseId, maxConcurrent);
+    const result = await this.tryAcquireInternal(key, leaseId, maxConcurrent, ttlSec);
 
     // If per-hostname failed but we acquired global, release global
     if (!result.acquired && maxGlobal !== Infinity) {
@@ -151,11 +179,17 @@ export class ConcurrencySemaphoreService {
 
   /**
    * Internal method for atomic lease acquisition
+   *
+   * @param key - Redis key for this semaphore
+   * @param leaseId - Unique lease identifier
+   * @param maxConcurrent - Max concurrent leases allowed
+   * @param ttlSec - Lease TTL in seconds (provider-specific)
    */
   private async tryAcquireInternal(
     key: string,
     leaseId: string,
     maxConcurrent: number,
+    ttlSec: number,
   ): Promise<{ acquired: boolean; currentCount: number; waitSuggestionMs?: number }> {
 
     // Lua script for atomic check-and-increment with TTL refresh
@@ -195,7 +229,7 @@ export class ConcurrencySemaphoreService {
         key,
         leaseId,
         maxConcurrent,
-        this.LEASE_TTL_SEC,
+        ttlSec,
         nowSec,
       )) as number[];
 

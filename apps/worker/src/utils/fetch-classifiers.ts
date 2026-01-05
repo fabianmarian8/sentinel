@@ -327,6 +327,7 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
   // Target store/ZIP chooser interstitial
   // Redirects to store locator instead of product page when geo-blocked
   // Returns 200 OK with store picker instead of actual product
+  // NOTE: This is interstitial_geo, NOT captcha - should not count as provider failure
   if (
     lower.includes('target.com') &&
     (
@@ -339,7 +340,7 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
     )
   ) {
     signals.push('target_store_chooser_interstitial');
-    return { isBlocked: true, kind: 'captcha', confidence: 0.9, signals };
+    return { isBlocked: true, kind: 'interstitial_geo', confidence: 0.9, signals };
   }
 
   // ============================================================
@@ -500,6 +501,11 @@ export function determineFetchOutcome(
     signals.push(...blockCheck.signals);
     if (blockCheck.kind === 'captcha') {
       return { outcome: 'captcha_required', blockKind: 'captcha', signals };
+    }
+    // interstitial_geo is NOT a provider failure - it's a geo-redirect page
+    // Should not trigger circuit breaker or count as block
+    if (blockCheck.kind === 'interstitial_geo') {
+      return { outcome: 'interstitial_geo', blockKind: 'interstitial_geo', signals };
     }
     return { outcome: 'blocked', blockKind: blockCheck.kind, signals };
   }

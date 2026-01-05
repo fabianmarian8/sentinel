@@ -18,6 +18,7 @@ import { BudgetGuardService } from './services/budget-guard.service';
 import { FetchAttemptLoggerService } from './services/fetch-attempt-logger.service';
 import { FetchOrchestratorService } from './services/fetch-orchestrator.service';
 import { ConcurrencySemaphoreService } from './services/concurrency-semaphore.service';
+import { TierPolicyResolverService } from './services/tier-policy-resolver.service';
 import { RunProcessor } from './processors/run.processor';
 import { AlertProcessor } from './processors/alert.processor';
 import { MaintenanceProcessor } from './processors/maintenance.processor';
@@ -104,6 +105,7 @@ import { QUEUE_NAMES } from './types/jobs';
     FetchAttemptLoggerService,
     FetchOrchestratorService,
     ConcurrencySemaphoreService,
+    TierPolicyResolverService,
     RunProcessor,
     AlertProcessor,
     MaintenanceProcessor,

@@ -14,6 +14,7 @@ import { AlertGeneratorService } from '../services/alert-generator.service';
 import { RateLimiterService } from '../services/rate-limiter.service';
 import { HealthScoreService } from '../services/health-score.service';
 import { FetchOrchestratorService, OrchestratorConfig } from '../services/fetch-orchestrator.service';
+import { TierPolicyResolverService } from '../services/tier-policy-resolver.service';
 import { FetchRequest } from '../types/fetch-result';
 import {
   smartFetch,
@@ -70,6 +71,7 @@ export class RunProcessor extends WorkerHost {
     private rateLimiter: RateLimiterService,
     private healthScore: HealthScoreService,
     private fetchOrchestrator: FetchOrchestratorService,
+    private tierPolicyResolver: TierPolicyResolverService,
   ) {
     super();
   }
@@ -188,33 +190,44 @@ export class RunProcessor extends WorkerHost {
           })
         : undefined;
 
-      // Build FetchRequest
+      // Resolve tier policy from FetchProfile (tier defaults + legacy fields + JSONB overrides)
+      // This enables the tri-state pattern: tier default vs explicit override
+      const tierPolicy = rule.source.fetchProfile
+        ? this.tierPolicyResolver.resolveTierPolicy(rule.source.fetchProfile)
+        : undefined;
+
+      // Use resolved policy timeout or default 60s
+      // Per-provider timeouts will be passed to orchestrator
+      const defaultTimeoutMs = 60000;
+
+      // Build FetchRequest using resolved tier policy
       const fetchRequest: FetchRequest = {
         url: rule.source.url,
         workspaceId: rule.source.workspaceId,
         ruleId: ruleId,
         hostname: domain,
-        timeoutMs: 60000, // 60s - verified BrightData account with premium domains is faster
+        timeoutMs: defaultTimeoutMs, // Base timeout - per-provider overrides in policy
         userAgent: rule.source.fetchProfile?.userAgent ?? undefined,
         headers: rule.source.fetchProfile?.headers
           ? (rule.source.fetchProfile.headers as Record<string, string>)
           : undefined,
         cookies: parsedCookies,
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
-        // Domain policy fields
-        preferredProvider: rule.source.fetchProfile?.preferredProvider as FetchRequest['preferredProvider'],
+        // Domain policy fields - from resolved tier policy
+        preferredProvider: tierPolicy?.preferredProvider,
         flareSolverrWaitSeconds: rule.source.fetchProfile?.flareSolverrWaitSeconds ?? undefined,
-        // PR4: Domain policy - disabled providers and stop behavior
-        disabledProviders: rule.source.fetchProfile?.disabledProviders as FetchRequest['disabledProviders'],
-        stopAfterPreferredFailure: rule.source.fetchProfile?.stopAfterPreferredFailure ?? undefined,
-        // Geo pinning: per-profile country for BrightData proxy (currency stability)
-        geoCountry: rule.source.fetchProfile?.geoCountry ?? undefined,
+        // Disabled providers and stop behavior from resolved policy
+        disabledProviders: tierPolicy?.disabledProviders,
+        stopAfterPreferredFailure: tierPolicy?.stopAfterPreferredFailure,
+        // Geo pinning from resolved policy
+        geoCountry: tierPolicy?.geoCountry,
       };
 
       // Build OrchestratorConfig
+      // allowPaid: Use tier policy if available, otherwise fall back to autoThrottleDisabled check
       const orchestratorConfig: OrchestratorConfig = {
         maxAttemptsPerRun: 5,
-        allowPaid: !rule.autoThrottleDisabled,
+        allowPaid: tierPolicy?.allowPaid ?? !rule.autoThrottleDisabled,
       };
 
       // Execute fetch with orchestrator

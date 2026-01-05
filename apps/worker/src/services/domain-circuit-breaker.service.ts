@@ -21,6 +21,16 @@ export interface CircuitState {
   openCount: number; // How many times opened (for escalating cooldown)
 }
 
+/**
+ * Outcomes that count as failures for circuit breaker purposes.
+ *
+ * EXCLUDED:
+ * - 'ok' - Success, obviously
+ * - 'rate_limited' - Provider-level limit, not domain-specific failure
+ * - 'preferred_unavailable' - Policy decision (allowPaid=false), not failure
+ * - 'interstitial_geo' - Geo-redirect page (store chooser, ZIP picker) - NOT a provider failure,
+ *                        the provider successfully fetched the page, it's just geo-blocked content
+ */
 const FAILURE_OUTCOMES: FetchOutcome[] = ['blocked', 'captcha_required', 'empty', 'timeout', 'provider_error', 'network_error'];
 
 @Injectable()

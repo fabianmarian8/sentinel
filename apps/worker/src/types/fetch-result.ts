@@ -24,7 +24,8 @@ export type FetchOutcome =
   | 'network_error'
   | 'provider_error'
   | 'rate_limited'            // Provider-level rate limit (retry later)
-  | 'preferred_unavailable';  // P0: preferredProvider not available (allowPaid=false or disabled)
+  | 'preferred_unavailable'   // P0: preferredProvider not available (allowPaid=false or disabled)
+  | 'interstitial_geo';       // Geo-redirect page (store chooser, ZIP picker) - NOT a provider failure
 
 export type BlockKind =
   | 'cloudflare'
@@ -32,6 +33,7 @@ export type BlockKind =
   | 'perimeterx'
   | 'captcha'
   | 'rate_limit'
+  | 'interstitial_geo'  // Geo-redirect, store chooser, ZIP picker
   | 'unknown';
 
 export interface FetchRequest {

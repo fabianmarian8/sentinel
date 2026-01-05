@@ -41,6 +41,8 @@ enum FetchOutcome {
   timeout
   network_error
   provider_error
+  rate_limited
+  interstitial_geo  // Geo-redirect page (store chooser, ZIP picker) - NOT a provider failure
 }
 
 enum FetchProvider {
@@ -69,7 +71,6 @@ enum DomainTier {
   tier_a
   tier_b
   tier_c
-  rate_limit
   unknown
 }
 
@@ -193,6 +194,10 @@ model FetchProfile {
   // - tier_b: Paid-first, SLO ≥95% with explicit budget (Amazon, Etsy)
   // - tier_c: Hostile/best-effort, lower SLO expected, higher cost (Temu, DataDome sites)
   domainTier      DomainTier @default(tier_a) @map("domain_tier")
+  // Explicit tier policy overrides (JSONB) - fields here take precedence over tier defaults
+  // Structure: { disabledProviders?: FetchProvider[], stopAfterPreferredFailure?: boolean,
+  //              preferredProvider?: FetchProvider, timeouts?: { [provider]: number }, geoCountry?: string }
+  tierPolicyOverrides Json?  @map("tier_policy_overrides")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

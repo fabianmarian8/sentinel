@@ -369,13 +369,13 @@ describe('fetch-classifiers', () => {
       });
     });
 
-    describe('Target Store/ZIP Chooser Interstitial', () => {
+    describe('Target Store/ZIP Chooser Interstitial (interstitial_geo)', () => {
       it('detects Target store chooser page via fixture', () => {
         const html = loadFixture('target-store-chooser.html');
         const result = classifyBlock(html);
 
         expect(result.isBlocked).toBe(true);
-        expect(result.kind).toBe('captcha');
+        expect(result.kind).toBe('interstitial_geo'); // NOT captcha - it's geo-redirect
         expect(result.confidence).toBe(0.9);
         expect(result.signals).toContain('target_store_chooser_interstitial');
       });
@@ -385,7 +385,7 @@ describe('fetch-classifiers', () => {
         const result = classifyBlock(html);
 
         expect(result.isBlocked).toBe(true);
-        expect(result.kind).toBe('captcha');
+        expect(result.kind).toBe('interstitial_geo');
         expect(result.signals).toContain('target_store_chooser_interstitial');
       });
 
@@ -394,6 +394,7 @@ describe('fetch-classifiers', () => {
         const result = classifyBlock(html);
 
         expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('interstitial_geo');
         expect(result.signals).toContain('target_store_chooser_interstitial');
       });
 
@@ -402,6 +403,7 @@ describe('fetch-classifiers', () => {
         const result = classifyBlock(html);
 
         expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('interstitial_geo');
         expect(result.signals).toContain('target_store_chooser_interstitial');
       });
 
@@ -608,6 +610,15 @@ describe('fetch-classifiers', () => {
       const result = determineFetchOutcome(200, html, 'text/html');
       expect(result.outcome).toBe('captcha_required');
       expect(result.blockKind).toBe('captcha');
+    });
+
+    it('returns interstitial_geo for Target store chooser (NOT blocked/captcha)', () => {
+      // interstitial_geo is NOT a provider failure - should not trigger circuit breaker
+      const html = loadFixture('target-store-chooser.html');
+      const result = determineFetchOutcome(200, html, 'text/html');
+      expect(result.outcome).toBe('interstitial_geo');
+      expect(result.blockKind).toBe('interstitial_geo');
+      expect(result.signals).toContain('target_store_chooser_interstitial');
     });
 
     it('returns timeout for timeout error', () => {
