@@ -20,7 +20,7 @@ async function bootstrap() {
 
     // Get config service for feature flags logging
     const configService = app.get(WorkerConfigService);
-    const { tierPolicyEnabled } = configService.featureFlags;
+    const { tierPolicyEnabled, canaryWorkspaceIds } = configService.featureFlags;
 
     logger.log('🚀 Sentinel Worker started successfully');
     logger.log('📋 Processing queues:');
@@ -30,7 +30,13 @@ async function bootstrap() {
     logger.log('🎛️  Feature flags:');
     logger.log(`   - TIER_POLICY_ENABLED=${tierPolicyEnabled}`);
     if (tierPolicyEnabled) {
-      logger.warn('   ⚠️  Tier policy ACTIVE - ensure backfill completed before production rollout');
+      if (canaryWorkspaceIds.length > 0) {
+        logger.log(`   - CANARY_WORKSPACE_IDS=${canaryWorkspaceIds.join(',')}`);
+        logger.log(`   ✓  Tier policy CANARY mode (${canaryWorkspaceIds.length} workspace(s))`);
+      } else {
+        logger.warn('   ⚠️  Tier policy GLOBAL mode - applies to ALL workspaces');
+        logger.warn('   ⚠️  Set CANARY_WORKSPACE_IDS for safe rollout');
+      }
     } else {
       logger.log('   ✓  Tier policy OFF - using legacy behavior');
     }

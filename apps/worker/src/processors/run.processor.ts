@@ -192,17 +192,26 @@ export class RunProcessor extends WorkerHost {
           })
         : undefined;
 
-      // Feature flag: TIER_POLICY_ENABLED
+      // Feature flag: TIER_POLICY_ENABLED + CANARY_WORKSPACE_IDS
       // When enabled: use TierPolicyResolver (tier defaults + legacy fields + JSONB overrides)
       // When disabled: use legacy behavior (raw FetchProfile fields + autoThrottleDisabled)
+      // Canary gating: if CANARY_WORKSPACE_IDS is set, only apply to those workspaces
       const tierPolicyEnabled = this.configService.featureFlags.tierPolicyEnabled;
+      const isCanaryWorkspace = this.configService.isCanaryWorkspace(rule.source.workspaceId);
+      const applyTierPolicy = tierPolicyEnabled && isCanaryWorkspace;
 
-      // Resolve tier policy from FetchProfile (only when feature flag is enabled)
-      const tierPolicy = tierPolicyEnabled && rule.source.fetchProfile
+      // Resolve tier policy from FetchProfile (only when enabled AND workspace is in canary group)
+      const tierPolicy = applyTierPolicy && rule.source.fetchProfile
         ? this.tierPolicyResolver.resolveTierPolicy(rule.source.fetchProfile)
         : undefined;
 
-      if (tierPolicyEnabled && tierPolicy) {
+      if (tierPolicyEnabled && !isCanaryWorkspace) {
+        this.logger.debug(
+          `[Job ${job.id}] Tier policy enabled but workspace ${rule.source.workspaceId} not in canary group, using legacy behavior`,
+        );
+      }
+
+      if (applyTierPolicy && tierPolicy) {
         this.logger.debug(
           `[Job ${job.id}] Using tier policy: tier=${rule.source.fetchProfile?.domainTier}, ` +
           `allowPaid=${tierPolicy.allowPaid}, timeoutMs=${tierPolicy.timeoutMs}`,

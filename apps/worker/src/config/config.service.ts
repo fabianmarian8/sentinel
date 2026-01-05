@@ -109,6 +109,41 @@ export class WorkerConfigService {
        * 3. Monitor SLO for 24h before global rollout
        */
       tierPolicyEnabled: this.configService.get<boolean>('TIER_POLICY_ENABLED', false),
+
+      /**
+       * CANARY_WORKSPACE_IDS - comma-separated list of workspace IDs for canary rollout
+       * When set: tier policy only applies to these workspaces (true canary)
+       * When empty/unset: tier policy applies to all workspaces (global rollout)
+       *
+       * Example: CANARY_WORKSPACE_IDS=11111111-1111-4111-8111-111111111111,other-workspace-id
+       */
+      canaryWorkspaceIds: this.parseCanaryWorkspaceIds(),
     };
+  }
+
+  /**
+   * Parse CANARY_WORKSPACE_IDS env variable into array
+   */
+  private parseCanaryWorkspaceIds(): string[] {
+    const raw = this.configService.get<string>('CANARY_WORKSPACE_IDS', '');
+    if (!raw || raw.trim() === '') {
+      return [];
+    }
+    return raw.split(',').map(id => id.trim()).filter(id => id.length > 0);
+  }
+
+  /**
+   * Check if a workspace is in the canary group
+   * Returns true if:
+   * - No canary list defined (global rollout)
+   * - Workspace ID is in the canary list
+   */
+  isCanaryWorkspace(workspaceId: string): boolean {
+    const canaryIds = this.featureFlags.canaryWorkspaceIds;
+    // Empty list = global rollout (all workspaces)
+    if (canaryIds.length === 0) {
+      return true;
+    }
+    return canaryIds.includes(workspaceId);
   }
 }
