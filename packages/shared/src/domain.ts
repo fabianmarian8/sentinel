@@ -208,6 +208,9 @@ export interface SchemaExtractionMeta {
   offersTruncated: boolean;
   fingerprint: SchemaFingerprint | null;
   currencyConflict: boolean;
+  // Missing price support: product exists but price unavailable
+  missingPrice?: boolean;
+  availabilityStatus?: AvailabilityStatus;
 }
 
 export interface SchemaExtractionResult {

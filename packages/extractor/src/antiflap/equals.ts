@@ -36,10 +36,30 @@ export function equals(a: any, b: any): boolean {
   // Compare currency AND country (if both have it) - market context must match
   if (
     typeof a === 'object' &&
-    ('value' in a || 'valueLow' in a || 'valueLowCents' in a) &&
+    ('value' in a || 'valueLow' in a || 'valueLowCents' in a || 'missingPrice' in a) &&
     typeof b === 'object' &&
-    ('value' in b || 'valueLow' in b || 'valueLowCents' in b)
+    ('value' in b || 'valueLow' in b || 'valueLowCents' in b || 'missingPrice' in b)
   ) {
+    // Handle missingPrice state explicitly
+    // missingPrice = valid state where product exists but price unavailable
+    const aMissing = a.missingPrice === true;
+    const bMissing = b.missingPrice === true;
+
+    // Both missing: compare by availability status (if present)
+    if (aMissing && bMissing) {
+      // Same availability status = equal (both unavailable)
+      if (a.availabilityStatus && b.availabilityStatus) {
+        return a.availabilityStatus === b.availabilityStatus;
+      }
+      // Both missing without status = equal
+      return true;
+    }
+
+    // One missing, one has price: NOT equal (state transition)
+    if (aMissing !== bMissing) {
+      return false;
+    }
+
     // Country mismatch = different market context (even if same currency)
     // Only compare if both have country (backward compat with old observations)
     if (a.country && b.country && a.country !== b.country) {

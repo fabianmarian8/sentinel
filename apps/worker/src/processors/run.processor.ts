@@ -457,9 +457,11 @@ export class RunProcessor extends WorkerHost {
 
       // Construct marketKey for per-market fingerprinting
       // Format: "${country}" (lowercase) - e.g., "us", "de", "sk"
-      // Uses geo context from orchestrator result (actual) or fetchRequest (configured)
-      const geoCountry = orchestratorResult.country || fetchRequest.geoCountry;
+      // Fallback chain: orchestrator (actual) → fetchRequest (configured) → null
+      const geoCountry = orchestratorResult.country || fetchRequest.geoCountry || null;
       const marketKey = geoCountry ? geoCountry.toLowerCase() : undefined;
+      // Normalized country for observation storage (always lowercase or null)
+      const normalizedCountry = geoCountry?.toLowerCase() ?? null;
       if (marketKey) {
         this.logger.debug(`[Job ${job.id}] Using marketKey: ${marketKey}`);
       }
@@ -491,7 +493,8 @@ export class RunProcessor extends WorkerHost {
           schemaExtractMeta = schemaResult.meta;
 
           // Check for schema drift if we have stored fingerprint
-          if (schemaResult.success && schemaResult.meta?.fingerprint && storedSchemaFingerprint) {
+          // GUARDRAIL: Don't check drift for missingPrice (unavailable products may have different schema shape)
+          if (schemaResult.success && schemaResult.meta?.fingerprint && storedSchemaFingerprint && !schemaResult.meta?.missingPrice) {
             const drift = detectSchemaDrift(storedSchemaFingerprint, schemaResult.meta.fingerprint);
             if (drift.drifted) {
               this.logger.warn(
@@ -551,7 +554,9 @@ export class RunProcessor extends WorkerHost {
           }
 
           // Update schema fingerprint on success
-          if (schemaResult.success && schemaResult.meta?.fingerprint) {
+          // GUARDRAIL: Don't update fingerprint for missingPrice (unavailable products)
+          // to avoid learning unavailable page templates as "good" patterns
+          if (schemaResult.success && schemaResult.meta?.fingerprint && !schemaResult.meta?.missingPrice) {
             try {
               await this.prisma.rule.update({
                 where: { id: ruleId },
@@ -772,19 +777,38 @@ export class RunProcessor extends WorkerHost {
         const ruleType = rule.ruleType as RuleType;
 
         if (ruleType === 'price') {
-          const numericValue = parseFloat(extractResult.value!);
-          normalizedValue = {
-            value: isNaN(numericValue) ? null : numericValue,
-            currency: schemaExtractMeta.currency, // Use extracted currency, not config
-            valueLow: schemaExtractMeta.valueLow,
-            valueHigh: schemaExtractMeta.valueHigh,
-            // Cents for precise comparison (avoids float precision issues like 29.83 vs 29.829999)
-            valueLowCents: schemaExtractMeta.valueLowCents,
-            valueHighCents: schemaExtractMeta.valueHighCents,
-            source: schemaExtractMeta.source, // 'jsonld' or 'meta'
-            currencyConflict: schemaExtractMeta.currencyConflict,
-            country: orchestratorResult.country, // Geo context for currency stability
-          };
+          // Handle missing price (product unavailable but schema found)
+          if (schemaExtractMeta.missingPrice) {
+            normalizedValue = {
+              value: null,
+              currency: schemaExtractMeta.currency,
+              valueLow: null,
+              valueHigh: null,
+              valueLowCents: null,
+              valueHighCents: null,
+              source: schemaExtractMeta.source,
+              currencyConflict: false,
+              country: normalizedCountry, // Fallback chain: orchestrator → fetchRequest → null
+              // Missing price context for change detection and reporting
+              missingPrice: true,
+              availabilityStatus: schemaExtractMeta.availabilityStatus,
+              availabilityUrl: schemaExtractMeta.availabilityUrl,
+            };
+          } else {
+            const numericValue = parseFloat(extractResult.value!);
+            normalizedValue = {
+              value: isNaN(numericValue) ? null : numericValue,
+              currency: schemaExtractMeta.currency, // Use extracted currency, not config
+              valueLow: schemaExtractMeta.valueLow,
+              valueHigh: schemaExtractMeta.valueHigh,
+              // Cents for precise comparison (avoids float precision issues like 29.83 vs 29.829999)
+              valueLowCents: schemaExtractMeta.valueLowCents,
+              valueHighCents: schemaExtractMeta.valueHighCents,
+              source: schemaExtractMeta.source, // 'jsonld' or 'meta'
+              currencyConflict: schemaExtractMeta.currencyConflict,
+              country: normalizedCountry, // Fallback chain: orchestrator → fetchRequest → null
+            };
+          }
         } else if (ruleType === 'availability') {
           normalizedValue = {
             status: extractResult.value as any, // Already mapped to 'in_stock', 'out_of_stock', etc.

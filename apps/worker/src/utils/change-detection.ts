@@ -104,6 +104,45 @@ function detectPriceChange(oldValue: any, newValue: any): ChangeDetectionResult 
     };
   }
 
+  // Handle missing price (product unavailable)
+  const oldMissing = oldValue?.missingPrice === true;
+  const newMissing = newValue?.missingPrice === true;
+
+  if (newMissing && !oldMissing && typeof oldLow === 'number') {
+    // Price existed before, now missing (product became unavailable)
+    const availStatus = newValue?.availabilityStatus || 'unavailable';
+    return {
+      changeKind: 'value_disappeared' as ChangeKind,
+      diffSummary: `Price disappeared: ${oldLow} ${oldCurrency} → unavailable (${availStatus})`,
+    };
+  }
+
+  if (oldMissing && !newMissing && typeof newLow === 'number') {
+    // Price was missing, now exists (product became available)
+    const availStatus = oldValue?.availabilityStatus || 'unavailable';
+    return {
+      changeKind: 'new_value' as ChangeKind,
+      diffSummary: `Price appeared: ${availStatus} → ${newLow} ${newCurrency}`,
+    };
+  }
+
+  if (oldMissing && newMissing) {
+    // Both missing - check if availability status changed
+    const oldStatus = oldValue?.availabilityStatus;
+    const newStatus = newValue?.availabilityStatus;
+    if (oldStatus && newStatus && oldStatus !== newStatus) {
+      return {
+        changeKind: 'value_changed' as ChangeKind,
+        diffSummary: `Availability changed: ${oldStatus} → ${newStatus} (still no price)`,
+      };
+    }
+    // No change
+    return {
+      changeKind: null,
+      diffSummary: null,
+    };
+  }
+
   if (typeof oldLow !== 'number' || typeof newLow !== 'number') {
     return {
       changeKind: 'format_changed' as ChangeKind,

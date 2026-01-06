@@ -397,6 +397,33 @@ function extractPriceFromEntity(
     const offersWithPrice = parsedOffers.filter(o => o.price !== null);
 
     if (offersWithPrice.length === 0) {
+      // Check if product has availability info (missing_price support)
+      const offerWithAvailability = parsedOffers.find(o => o.availability !== null);
+      if (offerWithAvailability?.availability) {
+        const availabilityStatus = AVAILABILITY_MAP[offerWithAvailability.availability] ?? 'unknown';
+        // Product exists but price unavailable - return success with missingPrice
+        const fingerprint = generateSchemaFingerprint(html, candidate, jsonLdBlockCount);
+        return {
+          success: true,
+          rawValue: null,
+          meta: {
+            source: 'jsonld',
+            schemaTypes: candidate.schemaTypes,
+            currency: offerWithAvailability.currency,
+            valueLow: null,
+            valueHigh: null,
+            valueLowCents: null,
+            valueHighCents: null,
+            availabilityUrl: offerWithAvailability.availability,
+            offersCount: candidate.offersCount,
+            offersTruncated: candidate.offersCount >= MAX_OFFERS_ITEMS,
+            fingerprint,
+            currencyConflict: false,
+            missingPrice: true,
+            availabilityStatus,
+          },
+        };
+      }
       return {
         success: false,
         rawValue: null,
@@ -443,6 +470,33 @@ function extractPriceFromEntity(
   }
 
   if (selectedPrice === null) {
+    // Defensive check - should not normally be reached
+    // But handle missing_price case for safety
+    const offerWithAvailability = parsedOffers.find(o => o.availability !== null);
+    if (offerWithAvailability?.availability) {
+      const availabilityStatus = AVAILABILITY_MAP[offerWithAvailability.availability] ?? 'unknown';
+      const fingerprint = generateSchemaFingerprint(html, candidate, jsonLdBlockCount);
+      return {
+        success: true,
+        rawValue: null,
+        meta: {
+          source: 'jsonld',
+          schemaTypes: candidate.schemaTypes,
+          currency: offerWithAvailability.currency,
+          valueLow: null,
+          valueHigh: null,
+          valueLowCents: null,
+          valueHighCents: null,
+          availabilityUrl: offerWithAvailability.availability,
+          offersCount: candidate.offersCount,
+          offersTruncated: candidate.offersCount >= MAX_OFFERS_ITEMS,
+          fingerprint,
+          currencyConflict,
+          missingPrice: true,
+          availabilityStatus,
+        },
+      };
+    }
     return {
       success: false,
       rawValue: null,
@@ -704,6 +758,38 @@ function extractPriceFromMeta(html: string): SchemaExtractionResult {
   }
 
   if (!price) {
+    // Check for availability meta tag (missing_price support)
+    const availMatch = html.match(/<meta[^>]+property\s*=\s*["']product:availability["'][^>]+content\s*=\s*["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+property\s*=\s*["']product:availability["']/i);
+
+    if (availMatch?.[1]) {
+      const availabilityUrl = availMatch[1];
+      const availabilityStatus = AVAILABILITY_MAP[availabilityUrl] ?? 'unknown';
+      // Try to get currency even without price
+      const currMatch = html.match(/<meta[^>]+property\s*=\s*["']product:price:currency["'][^>]+content\s*=\s*["']([^"']+)["']/i)
+        || html.match(/<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+property\s*=\s*["']product:price:currency["']/i);
+
+      return {
+        success: true,
+        rawValue: null,
+        meta: {
+          source: 'meta',
+          schemaTypes: [],
+          currency: currMatch?.[1] ?? null,
+          valueLow: null,
+          valueHigh: null,
+          valueLowCents: null,
+          valueHighCents: null,
+          availabilityUrl,
+          offersCount: null,
+          offersTruncated: false,
+          fingerprint: null,
+          currencyConflict: false,
+          missingPrice: true,
+          availabilityStatus,
+        },
+      };
+    }
     return {
       success: false,
       rawValue: null,
