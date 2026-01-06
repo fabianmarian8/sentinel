@@ -1145,6 +1145,33 @@ export class RunProcessor extends WorkerHost {
       return;
     }
 
+    // P0.2: Availability-first alert policy
+    // For price rules: suppress alerts when product is unavailable
+    // This prevents spam from "price disappeared" when product is just out of stock
+    if (rule.ruleType === 'price' && value && typeof value === 'object') {
+      const isProductUnavailable =
+        value.missingPrice === true ||
+        (value.availabilityStatus && value.availabilityStatus !== 'in_stock');
+
+      if (isProductUnavailable) {
+        const changeKind = change?.changeKind;
+
+        // Suppress "value_disappeared" alerts entirely - product is just unavailable
+        if (changeKind === 'value_disappeared') {
+          this.logger.log(
+            `[Rule ${rule.id}] Alert suppressed: price disappeared but product is unavailable (${value.availabilityStatus || 'missingPrice'})`,
+          );
+          return;
+        }
+
+        // For other price changes while unavailable, log but don't suppress
+        // The product might have been repriced before going out of stock
+        this.logger.log(
+          `[Rule ${rule.id}] Product unavailable but change detected (${changeKind}), proceeding with alert`,
+        );
+      }
+    }
+
     // Evaluate alert conditions
     const triggeredConditions = this.conditionEvaluator.evaluateConditions(
       alertPolicy.conditions,
