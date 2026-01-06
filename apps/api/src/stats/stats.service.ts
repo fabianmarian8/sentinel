@@ -438,6 +438,352 @@ export class StatsService {
   }
 
   /**
+   * Get observation-level split metrics for dashboards
+   *
+   * Separates success into 3 lines:
+   * 1. Observation Success Rate - observations created / runs (extraction worked)
+   * 2. Price Present Rate - valueLowCents != null / price-type observations (product has price)
+   * 3. Missing Price Rate - missingPrice=true / price-type observations (product unavailable)
+   *
+   * Also includes per-domain CAPTCHA rate for hostile domain monitoring
+   *
+   * This separation prevents "Amazon is broken" when reality is "Amazon product is out of stock"
+   */
+  async getObservationSplitMetrics(
+    workspaceId: string,
+    hours: number = 24,
+  ): Promise<{
+    period: { from: Date; to: Date; hours: number };
+    overall: {
+      totalRuns: number;
+      observationsCreated: number;
+      observationSuccessRate: number;
+    };
+    priceRules: {
+      totalObservations: number;
+      withPrice: number;
+      pricePresentRate: number;
+      missingPrice: number;
+      missingPriceRate: number;
+      extractionFailed: number;
+    };
+    byDomain: Array<{
+      hostname: string;
+      tier: string | null;
+      attempts: number;
+      okCount: number;
+      fetchOkRate: number;
+      captchaCount: number;
+      captchaRate: number;
+      blockedCount: number;
+    }>;
+  }> {
+    const fromDate = new Date();
+    fromDate.setTime(fromDate.getTime() - hours * 60 * 60 * 1000);
+    const toDate = new Date();
+
+    // Get workspace rules
+    const rules = await this.prisma.rule.findMany({
+      where: { source: { workspaceId } },
+      select: {
+        id: true,
+        ruleType: true,
+        source: {
+          select: {
+            domain: true,
+            fetchProfile: { select: { domainTier: true } },
+          },
+        },
+      },
+    });
+
+    const ruleIds = rules.map((r) => r.id);
+    const priceRuleIds = rules.filter((r) => r.ruleType === 'price').map((r) => r.id);
+    const ruleToTier = new Map(rules.map((r) => [r.id, r.source.fetchProfile?.domainTier ?? null]));
+
+    // Overall runs and observations
+    const [totalRuns, runsWithObs] = await Promise.all([
+      this.prisma.run.count({
+        where: {
+          ruleId: { in: ruleIds },
+          startedAt: { gte: fromDate },
+        },
+      }),
+      this.prisma.run.count({
+        where: {
+          ruleId: { in: ruleIds },
+          startedAt: { gte: fromDate },
+          observations: { some: {} },
+        },
+      }),
+    ]);
+
+    // Price rule observations with split metrics
+    const priceObservations = await this.prisma.observation.findMany({
+      where: {
+        ruleId: { in: priceRuleIds },
+        createdAt: { gte: fromDate },
+      },
+      select: {
+        extractedNormalized: true,
+      },
+    });
+
+    let withPrice = 0;
+    let missingPrice = 0;
+    let extractionFailed = 0;
+
+    for (const obs of priceObservations) {
+      const normalized = obs.extractedNormalized as Record<string, unknown> | null;
+      if (!normalized) {
+        extractionFailed++;
+      } else if (normalized.missingPrice === true) {
+        missingPrice++;
+      } else if (normalized.valueLowCents != null || normalized.valueLow != null || normalized.value != null) {
+        withPrice++;
+      } else {
+        extractionFailed++;
+      }
+    }
+
+    const totalPriceObs = priceObservations.length;
+
+    // Per-domain fetch stats with CAPTCHA breakdown
+    const fetchAttempts = await this.prisma.fetchAttempt.findMany({
+      where: {
+        workspaceId,
+        createdAt: { gte: fromDate },
+        ruleId: { not: null },
+      },
+      select: {
+        ruleId: true,
+        hostname: true,
+        outcome: true,
+      },
+    });
+
+    const domainStats = new Map<
+      string,
+      { tier: string | null; ok: number; captcha: number; blocked: number; total: number }
+    >();
+
+    for (const attempt of fetchAttempts) {
+      const hostname = attempt.hostname;
+      const tier = attempt.ruleId ? ruleToTier.get(attempt.ruleId) ?? null : null;
+
+      if (!domainStats.has(hostname)) {
+        domainStats.set(hostname, { tier, ok: 0, captcha: 0, blocked: 0, total: 0 });
+      }
+
+      const stats = domainStats.get(hostname)!;
+      stats.total++;
+
+      if (attempt.outcome === 'ok') {
+        stats.ok++;
+      } else if (attempt.outcome === 'captcha_required') {
+        stats.captcha++;
+      } else if (attempt.outcome === 'blocked') {
+        stats.blocked++;
+      }
+    }
+
+    const byDomain = Array.from(domainStats.entries())
+      .map(([hostname, stats]) => ({
+        hostname,
+        tier: stats.tier,
+        attempts: stats.total,
+        okCount: stats.ok,
+        fetchOkRate: stats.total > 0 ? stats.ok / stats.total : 1,
+        captchaCount: stats.captcha,
+        captchaRate: stats.total > 0 ? stats.captcha / stats.total : 0,
+        blockedCount: stats.blocked,
+      }))
+      .sort((a, b) => b.captchaRate - a.captchaRate); // Worst CAPTCHA rate first
+
+    return {
+      period: { from: fromDate, to: toDate, hours },
+      overall: {
+        totalRuns,
+        observationsCreated: runsWithObs,
+        observationSuccessRate: totalRuns > 0 ? runsWithObs / totalRuns : 1,
+      },
+      priceRules: {
+        totalObservations: totalPriceObs,
+        withPrice,
+        pricePresentRate: totalPriceObs > 0 ? withPrice / totalPriceObs : 1,
+        missingPrice,
+        missingPriceRate: totalPriceObs > 0 ? missingPrice / totalPriceObs : 0,
+        extractionFailed,
+      },
+      byDomain,
+    };
+  }
+
+  /**
+   * Get global observation split metrics (admin, no workspace filter)
+   */
+  async getGlobalObservationSplitMetrics(hours: number = 24): Promise<{
+    period: { from: Date; to: Date; hours: number };
+    overall: {
+      totalRuns: number;
+      observationsCreated: number;
+      observationSuccessRate: number;
+    };
+    priceRules: {
+      totalObservations: number;
+      withPrice: number;
+      pricePresentRate: number;
+      missingPrice: number;
+      missingPriceRate: number;
+      extractionFailed: number;
+    };
+    byDomain: Array<{
+      hostname: string;
+      tier: string | null;
+      attempts: number;
+      okCount: number;
+      fetchOkRate: number;
+      captchaCount: number;
+      captchaRate: number;
+      blockedCount: number;
+    }>;
+  }> {
+    const fromDate = new Date();
+    fromDate.setTime(fromDate.getTime() - hours * 60 * 60 * 1000);
+    const toDate = new Date();
+
+    // Get all rules
+    const rules = await this.prisma.rule.findMany({
+      select: {
+        id: true,
+        ruleType: true,
+        source: {
+          select: {
+            domain: true,
+            fetchProfile: { select: { domainTier: true } },
+          },
+        },
+      },
+    });
+
+    const ruleIds = rules.map((r) => r.id);
+    const priceRuleIds = rules.filter((r) => r.ruleType === 'price').map((r) => r.id);
+    const ruleToTier = new Map(rules.map((r) => [r.id, r.source.fetchProfile?.domainTier ?? null]));
+
+    // Overall runs and observations
+    const [totalRuns, runsWithObs] = await Promise.all([
+      this.prisma.run.count({
+        where: {
+          ruleId: { in: ruleIds },
+          startedAt: { gte: fromDate },
+        },
+      }),
+      this.prisma.run.count({
+        where: {
+          ruleId: { in: ruleIds },
+          startedAt: { gte: fromDate },
+          observations: { some: {} },
+        },
+      }),
+    ]);
+
+    // Price rule observations
+    const priceObservations = await this.prisma.observation.findMany({
+      where: {
+        ruleId: { in: priceRuleIds },
+        createdAt: { gte: fromDate },
+      },
+      select: { extractedNormalized: true },
+    });
+
+    let withPrice = 0;
+    let missingPrice = 0;
+    let extractionFailed = 0;
+
+    for (const obs of priceObservations) {
+      const normalized = obs.extractedNormalized as Record<string, unknown> | null;
+      if (!normalized) {
+        extractionFailed++;
+      } else if (normalized.missingPrice === true) {
+        missingPrice++;
+      } else if (normalized.valueLowCents != null || normalized.valueLow != null || normalized.value != null) {
+        withPrice++;
+      } else {
+        extractionFailed++;
+      }
+    }
+
+    // Per-domain fetch stats (global)
+    const fetchAttempts = await this.prisma.fetchAttempt.findMany({
+      where: {
+        createdAt: { gte: fromDate },
+        ruleId: { not: null },
+      },
+      select: {
+        ruleId: true,
+        hostname: true,
+        outcome: true,
+      },
+    });
+
+    const domainStats = new Map<
+      string,
+      { tier: string | null; ok: number; captcha: number; blocked: number; total: number }
+    >();
+
+    for (const attempt of fetchAttempts) {
+      const hostname = attempt.hostname;
+      const tier = attempt.ruleId ? ruleToTier.get(attempt.ruleId) ?? null : null;
+
+      if (!domainStats.has(hostname)) {
+        domainStats.set(hostname, { tier, ok: 0, captcha: 0, blocked: 0, total: 0 });
+      }
+
+      const stats = domainStats.get(hostname)!;
+      stats.total++;
+
+      if (attempt.outcome === 'ok') {
+        stats.ok++;
+      } else if (attempt.outcome === 'captcha_required') {
+        stats.captcha++;
+      } else if (attempt.outcome === 'blocked') {
+        stats.blocked++;
+      }
+    }
+
+    const byDomain = Array.from(domainStats.entries())
+      .map(([hostname, stats]) => ({
+        hostname,
+        tier: stats.tier,
+        attempts: stats.total,
+        okCount: stats.ok,
+        fetchOkRate: stats.total > 0 ? stats.ok / stats.total : 1,
+        captchaCount: stats.captcha,
+        captchaRate: stats.total > 0 ? stats.captcha / stats.total : 0,
+        blockedCount: stats.blocked,
+      }))
+      .sort((a, b) => b.captchaRate - a.captchaRate);
+
+    return {
+      period: { from: fromDate, to: toDate, hours },
+      overall: {
+        totalRuns,
+        observationsCreated: runsWithObs,
+        observationSuccessRate: totalRuns > 0 ? runsWithObs / totalRuns : 1,
+      },
+      priceRules: {
+        totalObservations: priceObservations.length,
+        withPrice,
+        pricePresentRate: priceObservations.length > 0 ? withPrice / priceObservations.length : 1,
+        missingPrice,
+        missingPriceRate: priceObservations.length > 0 ? missingPrice / priceObservations.length : 0,
+        extractionFailed,
+      },
+      byDomain,
+    };
+  }
+
+  /**
    * Get canary SLO metrics with tier breakdown
    *
    * Designed for 24h canary eval protocol:

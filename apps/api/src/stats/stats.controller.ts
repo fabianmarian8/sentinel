@@ -58,6 +58,24 @@ export class StatsController {
   }
 
   /**
+   * Get observation-level split metrics
+   *
+   * Separates success into 3 lines:
+   * - Observation Success Rate: extraction worked (observation created)
+   * - Price Present Rate: product has actual price
+   * - Missing Price Rate: product unavailable (missingPrice=true)
+   *
+   * Also includes per-domain CAPTCHA rate for hostile domain monitoring.
+   *
+   * Use case: "Amazon is broken" → check if it's actually "product out of stock"
+   */
+  @Get('slo/observations')
+  @UseGuards(JwtAuthGuard)
+  getObservationSplitMetrics(@CurrentUser() user: any, @Query('hours') hours: string = '24') {
+    return this.statsService.getObservationSplitMetrics(user.workspaceId, parseInt(hours));
+  }
+
+  /**
    * Admin endpoint: Global SLO metrics by hostname (no workspace filter)
    * Requires internal API key in X-Internal-Key header
    * Use: curl -H "X-Internal-Key: sentinel-internal-2026" /api/stats/admin/slo/hostnames
@@ -71,6 +89,29 @@ export class StatsController {
       throw new UnauthorizedException('Invalid internal API key');
     }
     return this.statsService.getGlobalSloMetricsByHostname(parseInt(hours));
+  }
+
+  /**
+   * Admin endpoint: Global observation split metrics (no workspace filter)
+   *
+   * Shows 3-line split for price rules:
+   * - observationSuccessRate: extraction worked
+   * - pricePresentRate: product has price
+   * - missingPriceRate: product unavailable
+   *
+   * Plus per-domain CAPTCHA rates for hostile domain monitoring.
+   *
+   * Use: curl -H "X-Internal-Key: sentinel-internal-2026" "/api/stats/admin/slo/observations?hours=24"
+   */
+  @Get('admin/slo/observations')
+  getGlobalObservationSplitMetrics(
+    @Headers('x-internal-key') apiKey: string,
+    @Query('hours') hours: string = '24',
+  ) {
+    if (apiKey !== INTERNAL_API_KEY) {
+      throw new UnauthorizedException('Invalid internal API key');
+    }
+    return this.statsService.getGlobalObservationSplitMetrics(parseInt(hours));
   }
 
   /**
