@@ -736,6 +736,13 @@ export class RunProcessor extends WorkerHost {
         this.logger.error(
           `[Job ${job.id}] Extraction failed: ${extractResult.error}`,
         );
+        // DEBUG: Save HTML on extraction failure for analysis
+        if (ruleId.includes('amazon') || ruleId.includes('cmjvy4nre')) {
+          const debugPath = `/tmp/debug-html-${ruleId}-${Date.now()}.html`;
+          const fs = await import('fs/promises');
+          await fs.writeFile(debugPath, fetchHtml);
+          this.logger.warn(`[Job ${job.id}] DEBUG: Saved HTML to ${debugPath} (${fetchHtml.length} bytes)`);
+        }
         return { success: false, error: 'Extraction failed' };
       }
 
