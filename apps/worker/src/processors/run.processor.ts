@@ -832,16 +832,17 @@ export class RunProcessor extends WorkerHost {
         // Special handling for availability rules - create structured object
         if (rule.ruleType === 'availability') {
           // Map common availability text to status
+          // IMPORTANT: Check negative patterns FIRST (unavailable contains 'available' as substring)
           const lower = rawValue.toLowerCase();
           let status: string;
-          if (lower.includes('in stock') || lower.includes('available')) {
-            status = 'in_stock';
-          } else if (lower.includes('out of stock') || lower.includes('unavailable') || lower.includes('sold out')) {
+          if (lower.includes('out of stock') || lower.includes('unavailable') || lower.includes('sold out')) {
             status = 'out_of_stock';
           } else if (lower.includes('preorder') || lower.includes('pre-order')) {
             status = 'preorder';
           } else if (lower.includes('backorder') || lower.includes('back order')) {
             status = 'backorder';
+          } else if (lower.includes('in stock') || lower.includes('available')) {
+            status = 'in_stock';
           } else {
             status = rawValue; // Keep raw value if no match
           }
