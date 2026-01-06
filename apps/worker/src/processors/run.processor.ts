@@ -557,6 +557,41 @@ export class RunProcessor extends WorkerHost {
               // Non-critical - don't fail the job
             }
           }
+
+          // If schema extraction failed, try CSS/XPath fallback selectors
+          if (!schemaResult.success && extraction.fallbackSelectors?.length) {
+            this.logger.debug(
+              `[Job ${job.id}] Schema extraction failed, trying ${extraction.fallbackSelectors.length} fallback selectors`,
+            );
+            for (const fallback of extraction.fallbackSelectors) {
+              const fallbackResult = await extractWithHealing(fetchHtml, {
+                selector: fallback.selector,
+                method: (fallback.method || 'css') as 'css' | 'xpath',
+                attribute: extraction.attribute,
+                fallbackSelectors: [],
+                storedFingerprint: storedFingerprint || undefined,
+                similarityThreshold: 0.6,
+                textAnchor: storedFingerprint?.textAnchor,
+                generateFingerprint: true,
+              });
+
+              if (fallbackResult.success && fallbackResult.value) {
+                this.logger.log(
+                  `[Job ${job.id}] Schema fallback succeeded with selector: ${fallback.selector}`,
+                );
+                extractResult = {
+                  success: true,
+                  value: fallbackResult.value,
+                  selectorUsed: fallback.selector,
+                  fallbackUsed: true,
+                  error: undefined,
+                };
+                selectorHealed = fallbackResult.healed;
+                healedSelector = fallbackResult.healed ? fallbackResult.selectorUsed : null;
+                break;
+              }
+            }
+          }
         } catch (parseError) {
           extractResult = {
             success: false,
