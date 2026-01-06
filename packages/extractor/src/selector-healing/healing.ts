@@ -343,38 +343,65 @@ function findValidSelector(
 /**
  * Validate extracted value against text anchor
  *
- * IMPORTANT: Anchors containing prices/numbers are unreliable because:
+ * IMPORTANT: Anchors containing prices are unreliable because:
  * - Currency can change with geo (EUR→USD)
  * - Prices fluctuate naturally
  * - Number formats differ by locale
  *
- * If anchor looks like a price (contains digits), we skip validation
+ * If anchor looks like a price (has currency symbol/code), we skip validation
  * to prevent false negatives after geo/currency changes.
+ *
+ * Pure numbers (years, model numbers, ASINs) are NOT skipped - they should
+ * still be validated to detect template drift.
  */
 function validateTextAnchor(value: string, anchor: string): boolean {
   const normalizedValue = normalizeText(value);
   const normalizedAnchor = normalizeText(anchor).slice(0, 20);
 
-  // If anchor contains digits (likely a price), skip validation
-  // Prices are too volatile to be reliable anchors
-  if (/\d/.test(normalizedAnchor)) {
-    return true; // Don't validate price-like anchors
+  // If anchor looks like a price (has currency context), skip validation
+  // This is a compatibility layer for historical price-based anchors
+  if (looksLikePrice(normalizedAnchor)) {
+    logger.debug(`[Healing] Anchor validation skipped: price-like anchor "${normalizedAnchor.slice(0, 15)}..."`);
+    return true;
   }
 
   // For non-price anchors, check if value contains the anchor
-  return normalizedValue.includes(normalizedAnchor);
+  const matches = normalizedValue.includes(normalizedAnchor);
+  if (!matches) {
+    logger.debug(`[Healing] Anchor validation failed: "${normalizedAnchor.slice(0, 15)}..." not in "${normalizedValue.slice(0, 30)}..."`);
+  }
+  return matches;
 }
 
 /**
- * Check if a string looks like a price (contains currency symbols or digit patterns)
+ * Check if a string looks like a price
+ *
+ * STRICT: Requires explicit currency signal to avoid false positives.
+ * Pure numbers without currency context are NOT considered prices.
+ *
+ * Examples:
+ * - "$819.99" → true (currency symbol)
+ * - "€699,47" → true (currency symbol)
+ * - "819.99 USD" → true (ISO code)
+ * - "2026" → false (just a number, could be year/version)
+ * - "1234" → false (just a number, could be model)
+ * - "B09V3KXJPB" → false (ASIN)
  */
 function looksLikePrice(value: string): boolean {
-  // Currency symbols
-  if (/[\$€£¥₹₽₩₪₴฿]/.test(value)) return true;
-  // Price patterns: digits with optional decimals
-  if (/^\s*\d+([.,]\d{2})?\s*$/.test(value)) return true;
-  // Formatted numbers: 1,234.56 or 1.234,56
-  if (/^\s*[\d.,]+\s*$/.test(value) && /\d/.test(value)) return true;
+  // Currency symbols (most common)
+  if (/[\$€£¥₹₽₩₪₴฿₺₸₴₱₭₲₡¢]/.test(value)) return true;
+
+  // ISO 4217 currency codes near numbers
+  // Pattern: number followed/preceded by 3-letter code (USD, EUR, GBP, etc.)
+  if (/\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|CNY|INR|KRW|BRL|MXN|RUB|PLN|CZK|HUF|SEK|NOK|DKK|TRY|ZAR|SGD|HKD|THB|MYR|IDR|PHP|VND|AED|SAR|ILS|EGP|NGN|KES|GHS|PKR|BDT|LKR|NPR|UAH|RON|BGN|HRK|RSD|ALL|MKD|BAM|GEL|AMD|AZN|KZT|UZS|TJS|KGS|TMT|BYN|MDL)\b/i.test(value)) {
+    // Must also contain a number
+    if (/\d/.test(value)) return true;
+  }
+
+  // Common price formats with explicit currency indicators
+  // "Price: 123.45" or "Cena: 123,45" patterns
+  if (/\b(price|cena|precio|preis|prix|prezzo|цена|cen[ay])\s*:?\s*[\d.,]+/i.test(value)) return true;
+
   return false;
 }
 
