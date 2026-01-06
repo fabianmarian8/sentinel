@@ -306,9 +306,20 @@ export function classifyBlock(bodyText: string | undefined): BlockClassification
 
   // Amazon soft-wall CAPTCHA page
   // Returns 200 OK but shows "Click to continue shopping" with validateCaptcha form
+  // Multiple patterns to catch variations:
+  // - validateCaptcha form action
+  // - opfcaptcha.amazon.com in script
+  // - "continue shopping" button with minimal content
+  // - Robot check interstitial
   if (
     lower.includes('validatecaptcha') ||
-    lower.includes('opfcaptcha.amazon.com')
+    lower.includes('opfcaptcha.amazon.com') ||
+    // "Continue shopping" interstitial (when page is small and Amazon domain)
+    (bytes < 15000 && lower.includes('amazon.com') && lower.includes('continue shopping')) ||
+    // Robot check page
+    (lower.includes('amazon.com') && lower.includes('sorry, we just need to make sure')) ||
+    // CAPTCHA character entry
+    (lower.includes('amazon.com') && lower.includes('enter the characters you see below'))
   ) {
     signals.push('amazon_captcha_signature');
     return { isBlocked: true, kind: 'captcha', confidence: 0.99, signals };

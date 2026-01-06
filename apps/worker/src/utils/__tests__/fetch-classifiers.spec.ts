@@ -338,6 +338,52 @@ describe('fetch-classifiers', () => {
         expect(result.isBlocked).toBe(true);
         expect(result.kind).toBe('captcha');
       });
+
+      it('detects small Amazon "continue shopping" interstitial', () => {
+        // Small page (<15KB) with amazon.com and "continue shopping" text
+        const html = `<!DOCTYPE html>
+          <html><head><title>Amazon.com</title></head>
+          <body>
+            <a href="https://www.amazon.com">amazon.com</a>
+            <button>Continue shopping</button>
+          </body></html>`;
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('amazon_captcha_signature');
+      });
+
+      it('detects Amazon robot check page', () => {
+        const html = `<!DOCTYPE html>
+          <html><head><title>Robot Check</title></head>
+          <body>
+            <h4>Sorry, we just need to make sure you're not a robot.</h4>
+            <a href="https://www.amazon.com/dp/B123">amazon.com</a>
+          </body></html>`;
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('amazon_captcha_signature');
+      });
+
+      it('detects Amazon character entry CAPTCHA', () => {
+        const html = `<!DOCTYPE html>
+          <html><head><title>Amazon.com</title></head>
+          <body>
+            <h4>Enter the characters you see below</h4>
+            <img src="captcha.jpg" />
+            <form action="https://www.amazon.com/verify">
+              <input type="text" name="field-keywords" />
+            </form>
+          </body></html>`;
+        const result = classifyBlock(html);
+
+        expect(result.isBlocked).toBe(true);
+        expect(result.kind).toBe('captcha');
+        expect(result.signals).toContain('amazon_captcha_signature');
+      });
     });
 
     describe('Temu/Kwai JS Challenge', () => {
