@@ -827,11 +827,37 @@ export class RunProcessor extends WorkerHost {
         }
       } else {
         // CSS/XPath extraction: use config-based normalization
-        normalizedValue = normalizeValue(
-          extractResult.value!,
-          normalization,
-          rule.ruleType as RuleType,
-        );
+        const rawValue = extractResult.value!;
+
+        // Special handling for availability rules - create structured object
+        if (rule.ruleType === 'availability') {
+          // Map common availability text to status
+          const lower = rawValue.toLowerCase();
+          let status: string;
+          if (lower.includes('in stock') || lower.includes('available')) {
+            status = 'in_stock';
+          } else if (lower.includes('out of stock') || lower.includes('unavailable') || lower.includes('sold out')) {
+            status = 'out_of_stock';
+          } else if (lower.includes('preorder') || lower.includes('pre-order')) {
+            status = 'preorder';
+          } else if (lower.includes('backorder') || lower.includes('back order')) {
+            status = 'backorder';
+          } else {
+            status = rawValue; // Keep raw value if no match
+          }
+          normalizedValue = {
+            status,
+            leadTimeDays: null,
+            source: 'css',
+            country: normalizedCountry,
+          };
+        } else {
+          normalizedValue = normalizeValue(
+            rawValue,
+            normalization,
+            rule.ruleType as RuleType,
+          );
+        }
       }
 
       // Ensure country is always present in extractedNormalized (P1 technical debt)
