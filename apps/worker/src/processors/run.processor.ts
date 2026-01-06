@@ -242,10 +242,11 @@ export class RunProcessor extends WorkerHost {
         cookies: parsedCookies,
         renderWaitMs: rule.source.fetchProfile?.renderWaitMs ?? 2000,
         // Domain policy fields - from resolved tier policy OR legacy FetchProfile (fallback)
+        // BUG FIX: Always fallback to fetchProfile fields, even when tierPolicyEnabled but workspace not in canary
         preferredProvider: tierPolicy?.preferredProvider ?? rule.source.fetchProfile?.preferredProvider ?? undefined,
         flareSolverrWaitSeconds: rule.source.fetchProfile?.flareSolverrWaitSeconds ?? undefined,
-        // Disabled providers and stop behavior from resolved policy OR legacy (empty = no disabled)
-        disabledProviders: tierPolicy?.disabledProviders ?? (tierPolicyEnabled ? [] : rule.source.fetchProfile?.disabledProviders ?? []),
+        // Disabled providers and stop behavior from resolved policy OR legacy fetchProfile
+        disabledProviders: tierPolicy?.disabledProviders ?? rule.source.fetchProfile?.disabledProviders ?? [],
         stopAfterPreferredFailure: tierPolicy?.stopAfterPreferredFailure ?? rule.source.fetchProfile?.stopAfterPreferredFailure ?? false,
         // Geo pinning from resolved policy OR legacy FetchProfile
         geoCountry: tierPolicy?.geoCountry ?? rule.source.fetchProfile?.geoCountry ?? undefined,
