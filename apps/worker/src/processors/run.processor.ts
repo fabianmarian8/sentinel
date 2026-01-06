@@ -815,6 +815,7 @@ export class RunProcessor extends WorkerHost {
             leadTimeDays: null,
             availabilityUrl: schemaExtractMeta.availabilityUrl,
             source: schemaExtractMeta.source,
+            country: normalizedCountry, // Ensure country is always present
           };
         } else {
           // For other rule types, use standard normalization
@@ -831,6 +832,12 @@ export class RunProcessor extends WorkerHost {
           normalization,
           rule.ruleType as RuleType,
         );
+      }
+
+      // Ensure country is always present in extractedNormalized (P1 technical debt)
+      // Country comes from: FetchProfile.geoCountry → BRIGHTDATA_COUNTRY env → null
+      if (normalizedValue && typeof normalizedValue === 'object' && !('country' in normalizedValue)) {
+        (normalizedValue as any).country = normalizedCountry;
       }
 
       // Step 8: Anti-flap check
