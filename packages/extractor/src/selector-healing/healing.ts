@@ -342,13 +342,40 @@ function findValidSelector(
 
 /**
  * Validate extracted value against text anchor
+ *
+ * IMPORTANT: Anchors containing prices/numbers are unreliable because:
+ * - Currency can change with geo (EUR→USD)
+ * - Prices fluctuate naturally
+ * - Number formats differ by locale
+ *
+ * If anchor looks like a price (contains digits), we skip validation
+ * to prevent false negatives after geo/currency changes.
  */
 function validateTextAnchor(value: string, anchor: string): boolean {
   const normalizedValue = normalizeText(value);
   const normalizedAnchor = normalizeText(anchor).slice(0, 20);
 
-  // Check if value contains the anchor (first 20 chars)
+  // If anchor contains digits (likely a price), skip validation
+  // Prices are too volatile to be reliable anchors
+  if (/\d/.test(normalizedAnchor)) {
+    return true; // Don't validate price-like anchors
+  }
+
+  // For non-price anchors, check if value contains the anchor
   return normalizedValue.includes(normalizedAnchor);
+}
+
+/**
+ * Check if a string looks like a price (contains currency symbols or digit patterns)
+ */
+function looksLikePrice(value: string): boolean {
+  // Currency symbols
+  if (/[\$€£¥₹₽₩₪₴฿]/.test(value)) return true;
+  // Price patterns: digits with optional decimals
+  if (/^\s*\d+([.,]\d{2})?\s*$/.test(value)) return true;
+  // Formatted numbers: 1,234.56 or 1.234,56
+  if (/^\s*[\d.,]+\s*$/.test(value) && /\d/.test(value)) return true;
+  return false;
 }
 
 /**
@@ -377,8 +404,14 @@ export function createSelectorFingerprint(
   // Generate alternative selectors
   const alternativeSelectors = generateAlternativeSelectors(elementFingerprint);
 
-  // Create text anchor (first 50 chars of normalized value)
-  const textAnchor = extractedValue ? normalizeText(extractedValue).slice(0, 50) : undefined;
+  // Create text anchor ONLY for non-price content
+  // Prices are unreliable anchors because:
+  // - Currency changes with geo
+  // - Values fluctuate naturally
+  // - Format differs by locale
+  const textAnchor = extractedValue && !looksLikePrice(extractedValue)
+    ? normalizeText(extractedValue).slice(0, 50)
+    : undefined;
 
   // Build parent context
   const parentContext: { tag: string; classes: string[]; id?: string }[] = [];
