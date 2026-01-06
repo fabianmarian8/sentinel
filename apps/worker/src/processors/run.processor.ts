@@ -455,6 +455,15 @@ export class RunProcessor extends WorkerHost {
       const storedFingerprint = rule.selectorFingerprint as SelectorFingerprint | null;
       const storedSchemaFingerprint = rule.schemaFingerprint as SchemaFingerprint | null;
 
+      // Construct marketKey for per-market fingerprinting
+      // Format: "${country}" (lowercase) - e.g., "us", "de", "sk"
+      // Uses geo context from orchestrator result (actual) or fetchRequest (configured)
+      const geoCountry = orchestratorResult.country || fetchRequest.geoCountry;
+      const marketKey = geoCountry ? geoCountry.toLowerCase() : undefined;
+      if (marketKey) {
+        this.logger.debug(`[Job ${job.id}] Using marketKey: ${marketKey}`);
+      }
+
       let extractResult: {
         success: boolean;
         value: string | null;
@@ -573,6 +582,7 @@ export class RunProcessor extends WorkerHost {
                 similarityThreshold: 0.6,
                 textAnchor: storedFingerprint?.textAnchor,
                 generateFingerprint: true,
+                marketKey, // Per-market fingerprint support
               });
 
               if (fallbackResult.success && fallbackResult.value) {
@@ -617,6 +627,7 @@ export class RunProcessor extends WorkerHost {
           similarityThreshold: 0.6,
           textAnchor: storedFingerprint?.textAnchor,
           generateFingerprint: true,
+          marketKey, // Per-market fingerprint support
         });
 
         // Convert healing result to extraction result format
@@ -654,6 +665,7 @@ export class RunProcessor extends WorkerHost {
               healedSelector,
               healingResult.value || '',
               storedFingerprint || undefined,
+              marketKey, // Per-market fingerprint support
             );
 
             // Add to healing history
@@ -695,6 +707,7 @@ export class RunProcessor extends WorkerHost {
               extraction.selector,
               extractResult.value || '',
               storedFingerprint || undefined,
+              marketKey, // Per-market fingerprint support
             );
 
             await this.prisma.rule.update({

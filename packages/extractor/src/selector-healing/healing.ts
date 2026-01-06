@@ -13,6 +13,7 @@ import {
   HealingOptions,
   SelectorFingerprint,
   ElementFingerprint,
+  MarketFingerprint,
 } from './types';
 import {
   extractFingerprint,
@@ -43,16 +44,22 @@ export async function extractWithHealing(
     similarityThreshold = 0.6,
     textAnchor,
     generateFingerprint = true,
+    marketKey,
   } = options;
 
   // Load HTML once
   const $ = cheerio.load(html);
 
+  // Resolve effective fingerprint for this market
+  // Priority: market-specific → legacy single → none
+  const effectiveFingerprint = resolveMarketFingerprint(storedFingerprint, marketKey);
+  const effectiveTextAnchor = textAnchor ?? effectiveFingerprint?.textAnchor;
+
   // Step 1: Try primary selector
   const primaryResult = trySelector($, selector, attribute as any);
   if (primaryResult.success && primaryResult.value) {
     // Validate with text anchor if provided
-    if (textAnchor && !validateTextAnchor(primaryResult.value, textAnchor)) {
+    if (effectiveTextAnchor && !validateTextAnchor(primaryResult.value, effectiveTextAnchor)) {
       logger.debug(`Primary selector matched but text anchor validation failed`);
     } else {
       // Generate fingerprint for storage
@@ -81,18 +88,18 @@ export async function extractWithHealing(
     const fallbackResult = trySelector($, fallback, attribute as any);
     if (fallbackResult.success && fallbackResult.value) {
       // Validate with text anchor if provided
-      if (textAnchor && !validateTextAnchor(fallbackResult.value, textAnchor)) {
+      if (effectiveTextAnchor && !validateTextAnchor(fallbackResult.value, effectiveTextAnchor)) {
         logger.debug(`Fallback selector ${fallback} matched but text anchor validation failed`);
         continue;
       }
 
       // Calculate similarity if we have stored fingerprint
       let similarity = 0;
-      if (storedFingerprint?.elementFingerprint) {
+      if (effectiveFingerprint?.elementFingerprint) {
         const fallbackFingerprint = extractFingerprintFromSelector($, fallback);
         if (fallbackFingerprint) {
           similarity = calculateSimilarity(
-            storedFingerprint.elementFingerprint,
+            effectiveFingerprint.elementFingerprint,
             fallbackFingerprint
           );
         }
@@ -120,15 +127,15 @@ export async function extractWithHealing(
   logger.debug(`All ${fallbackSelectors.length} fallback selectors failed`);
 
   // Step 3: Try fingerprint-based matching
-  if (storedFingerprint?.elementFingerprint) {
+  if (effectiveFingerprint?.elementFingerprint) {
     logger.debug(`Attempting fingerprint-based healing...`);
 
     const fingerprintResult = await healWithFingerprint(
       $,
-      storedFingerprint.elementFingerprint,
+      effectiveFingerprint.elementFingerprint,
       attribute as any,
       similarityThreshold,
-      textAnchor
+      effectiveTextAnchor
     );
 
     if (fingerprintResult.success && fingerprintResult.value) {
@@ -341,6 +348,50 @@ function findValidSelector(
 }
 
 /**
+ * Resolve effective fingerprint for a market
+ *
+ * Priority:
+ * 1. Market-specific fingerprint (if marketKey provided and exists)
+ * 2. Legacy single fingerprint (backward compatibility)
+ * 3. undefined (no fingerprint available)
+ *
+ * When marketKey is provided but no market fingerprint exists, this returns
+ * the legacy fingerprint as fallback. The caller should create a new market
+ * fingerprint on successful extraction.
+ */
+function resolveMarketFingerprint(
+  storedFingerprint: SelectorFingerprint | undefined,
+  marketKey: string | undefined
+): MarketFingerprint | undefined {
+  if (!storedFingerprint) return undefined;
+
+  // If marketKey provided, try market-specific first
+  if (marketKey) {
+    const marketFp = storedFingerprint.markets?.[marketKey.toLowerCase()];
+    if (marketFp) {
+      logger.debug(`[Healing] Using market fingerprint for ${marketKey}`);
+      return marketFp;
+    }
+    // Market fingerprint doesn't exist - new market detected
+    // Fall back to legacy, but log for visibility
+    if (storedFingerprint.elementFingerprint || storedFingerprint.textAnchor) {
+      logger.debug(`[Healing] New market ${marketKey}, using legacy fingerprint as baseline`);
+    }
+  }
+
+  // Return legacy fingerprint as MarketFingerprint-compatible structure
+  if (storedFingerprint.elementFingerprint || storedFingerprint.textAnchor) {
+    return {
+      textAnchor: storedFingerprint.textAnchor,
+      elementFingerprint: storedFingerprint.elementFingerprint,
+      lastSuccessAt: storedFingerprint.lastSuccessAt,
+    };
+  }
+
+  return undefined;
+}
+
+/**
  * Validate extracted value against text anchor
  *
  * IMPORTANT: Anchors containing prices are unreliable because:
@@ -407,12 +458,22 @@ function looksLikePrice(value: string): boolean {
 
 /**
  * Create or update selector fingerprint for a rule
+ *
+ * If marketKey is provided, stores fingerprint under that market key.
+ * This enables per-market fingerprints for multi-geo monitoring.
+ *
+ * @param html - Page HTML content
+ * @param selector - CSS selector that matched
+ * @param extractedValue - Value extracted from page
+ * @param existingFingerprint - Existing fingerprint to merge with
+ * @param marketKey - Optional market key (e.g., "us:usd", "de:eur")
  */
 export function createSelectorFingerprint(
   html: string,
   selector: string,
   extractedValue: string,
-  existingFingerprint?: SelectorFingerprint
+  existingFingerprint?: SelectorFingerprint,
+  marketKey?: string
 ): SelectorFingerprint {
   const $ = cheerio.load(html);
   const element = $(selector).first();
@@ -453,6 +514,46 @@ export function createSelectorFingerprint(
   // Merge with existing healing history
   const healingHistory = existingFingerprint?.healingHistory || [];
 
+  // Prepare market fingerprint data
+  const marketFingerprintData: MarketFingerprint = {
+    textAnchor,
+    elementFingerprint,
+    lastSuccessAt: new Date().toISOString(),
+    successCount: 1,
+  };
+
+  // If marketKey provided, store under market key (per-market fingerprint)
+  if (marketKey) {
+    const normalizedKey = marketKey.toLowerCase();
+    const existingMarkets = existingFingerprint?.markets || {};
+    const existingMarketFp = existingMarkets[normalizedKey];
+
+    // Increment success count if existing
+    if (existingMarketFp) {
+      marketFingerprintData.successCount = (existingMarketFp.successCount || 0) + 1;
+    }
+
+    logger.debug(`[Healing] Storing fingerprint for market ${normalizedKey} (count: ${marketFingerprintData.successCount})`);
+
+    return {
+      selector,
+      alternativeSelectors,
+      parentContext,
+      attributes: elementFingerprint.attributes,
+      healingHistory,
+      // Keep legacy fingerprint for backward compat
+      textAnchor: existingFingerprint?.textAnchor,
+      elementFingerprint: existingFingerprint?.elementFingerprint,
+      lastSuccessAt: existingFingerprint?.lastSuccessAt,
+      // Add/update market-specific fingerprint
+      markets: {
+        ...existingMarkets,
+        [normalizedKey]: marketFingerprintData,
+      },
+    };
+  }
+
+  // No marketKey - use legacy single fingerprint (backward compat)
   return {
     selector,
     alternativeSelectors,
@@ -462,5 +563,7 @@ export function createSelectorFingerprint(
     elementFingerprint,
     lastSuccessAt: new Date().toISOString(),
     healingHistory,
+    // Preserve existing markets if any
+    markets: existingFingerprint?.markets,
   };
 }

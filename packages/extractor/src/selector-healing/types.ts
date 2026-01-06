@@ -40,8 +40,35 @@ export interface ElementFingerprint {
 }
 
 /**
+ * Market-specific fingerprint data
+ * Stored per market key (e.g., "us:usd", "de:eur", "sk:eur")
+ *
+ * Each market can have different:
+ * - Text anchors (locale-specific text)
+ * - Element fingerprints (layout variations)
+ * - Success metrics
+ */
+export interface MarketFingerprint {
+  // Text anchor (may differ by locale/currency)
+  textAnchor?: string;
+
+  // Element fingerprint (may differ by layout)
+  elementFingerprint?: ElementFingerprint;
+
+  // Last successful extraction in this market
+  lastSuccessAt?: string;
+
+  // Success count (for confidence weighting)
+  successCount?: number;
+}
+
+/**
  * Selector fingerprint stored in database
  * Contains healing strategies and validation anchors
+ *
+ * Supports both:
+ * - Legacy single fingerprint (backward compat)
+ * - Per-market fingerprints (new)
  */
 export interface SelectorFingerprint {
   // Primary selector
@@ -50,9 +77,22 @@ export interface SelectorFingerprint {
   // Fallback selectors (ordered by reliability)
   alternativeSelectors: string[];
 
+  // ===== LEGACY (single fingerprint, backward compat) =====
   // Text anchor for validation
   textAnchor?: string;
 
+  // Element fingerprint for similarity matching
+  elementFingerprint?: ElementFingerprint;
+
+  // Last successful extraction timestamp
+  lastSuccessAt?: string;
+
+  // ===== NEW: Per-market fingerprints =====
+  // Key format: "${country}:${currency}" (lowercase)
+  // Examples: "us:usd", "de:eur", "sk:eur", "cz:czk"
+  markets?: Record<string, MarketFingerprint>;
+
+  // ===== SHARED =====
   // Parent context for structural validation
   parentContext?: {
     tag: string;
@@ -62,12 +102,6 @@ export interface SelectorFingerprint {
 
   // Element attributes for validation
   attributes?: Record<string, string>;
-
-  // Element fingerprint for similarity matching
-  elementFingerprint?: ElementFingerprint;
-
-  // Last successful extraction timestamp
-  lastSuccessAt?: string;
 
   // Healing history
   healingHistory?: {
@@ -127,6 +161,11 @@ export interface HealingOptions {
 
   // Enable fingerprint generation on success
   generateFingerprint?: boolean;
+
+  // Market context for per-market fingerprint
+  // Format: "${country}:${currency}" lowercase, e.g., "us:usd", "de:eur"
+  // If provided, uses market-specific fingerprint instead of legacy single
+  marketKey?: string;
 }
 
 /**
